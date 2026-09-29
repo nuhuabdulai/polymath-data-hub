@@ -47,7 +47,7 @@ function mockProducts() {
 /* ---------- low level ---------- */
 async function send(method, path, body) {
   const base = cfg("IDATAGH_API_URL");
-  if (!base || cfg("IDATAGH_USE_MOCK", "1") === "1") return null;
+  if (!base || cfg("IDATAGH_USE_MOCK", "") === "1") return null;
   const headers = {};
   const headersInit = () => {
     if (!headers.Authorization && !headers[cfg("IDATAGH_AUTH_HEADER") || "X-Api-Key"]) {
@@ -113,8 +113,13 @@ function fmtSize(mb) {
 }
 
 /* ---------- mapping idatagh JSON -> our model ---------- */
+/* Default field names, so an env entry that is present but blank (or a typo'd key)
+   falls back to the documented iDATA names instead of to `it[""]`, which is always
+   undefined and silently pushes every bundle onto the heuristic fallbacks. */
+const FIELD_DEFAULTS = { ID: "package_id", LABEL: "label", NAME: "label", PRICE: "price", SIZE: "data_size", VALIDITY: "", NETWORK: "network" };
+
 function normalize(raw, networkOverride = "") {
-  const F = (k) => cfg(`IDATAGH_FIELD_${k}`);
+  const F = (k) => cfg(`IDATAGH_FIELD_${k}`, FIELD_DEFAULTS[k] || "");
   let items = Array.isArray(raw) ? raw : raw && (raw.packages || raw.data || raw.products || raw.plans || raw.list || raw.result);
   if (!Array.isArray(items)) items = raw && Array.isArray(raw.data) ? raw.data : [];
   return items.map((it) => {
@@ -143,7 +148,7 @@ function normalize(raw, networkOverride = "") {
 
 /* ---------- high level ---------- */
 async function listProducts() {
-  const mock = cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL");
+  const mock = cfg("IDATAGH_USE_MOCK", "") === "1" || !cfg("IDATAGH_API_URL");
   if (mock) { await mockDelay(); return mockProducts(); }
   if (Date.now() - cache.products.at < cache.ttlMs && cache.products.data) return cache.products.data;
   const fan = P_PATH.includes("{network}");
@@ -193,13 +198,25 @@ function classifyProviderResponse(raw) {
   const status = providerStatus(raw);
   const message = providerMessage(raw);
   const messageText = message.toLowerCase();
-  if (/fail|reject|cancel|error|declin/.test(status) || /fail|reject|cancel|error|declin/.test(messageText)) return "failed";
-  if (/delivered|completed|fulfilled/.test(status) || /successfully\s+(delivered|completed|fulfilled)|(?:delivered|completed|fulfilled)\s+successfully|delivery\s+completed/.test(messageText)) return "delivered";
+  /* The explicit status wins over prose. This used to test the failure words first
+     against BOTH the status and the message, so a success whose message mentioned
+     an error ("delivered, no errors") or a cancellation window was classified as
+     failed — parking a delivered order as one the customer paid for and never got.
+     A status we recognise is taken at its word; message text is only consulted when
+     the status says nothing useful. */
+  if (status) {
+    if (/fail|reject|cancel|error|declin/.test(status)) return "failed";
+    if (/deliver|complete|fulfil|success|approv|accept/.test(status)) {
+      return /deliver|complete|fulfil/.test(status) ? "delivered" : "processing";
+    }
+  }
+  if (/fail|reject|cancel|error|declin/.test(messageText)) return "failed";
+  if (/delivered|completed|fulfilled/.test(messageText)) return "delivered";
   return "processing";
 }
 
 async function buyBundle({ planId, network, phone, reference }) {
-  const mock = cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL");
+  const mock = cfg("IDATAGH_USE_MOCK", "") === "1" || !cfg("IDATAGH_API_URL");
   if (mock) {
     await mockDelay(700);
     const plan = mockProducts().find((p) => String(p.id) === String(planId));
@@ -255,7 +272,7 @@ async function buyBundle({ planId, network, phone, reference }) {
 }
 
 async function walletBalance() {
-  const mock = cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL");
+  const mock = cfg("IDATAGH_USE_MOCK", "") === "1" || !cfg("IDATAGH_API_URL");
   if (mock) return { balance: 0, raw: null };
   const data = await send("GET", P_WALLET);
   const b = data && (data.balance ?? data.wallet ?? (data.data && data.data.balance));
@@ -263,13 +280,19 @@ async function walletBalance() {
 }
 
 async function registerWebhook(url) {
-  if (cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL")) return { mock: true };
+  if (cfg("IDATAGH_USE_MOCK", "") === "1" || !cfg("IDATAGH_API_URL")) return { mock: true };
   return send("POST", P_WEBHOOK, { webhook_url: url });
 }
 
-/* HMAC-SHA256 signature check for incoming webhooks (X-Tera-Signature). */
+/* HMAC-SHA256 signature check for incoming webhooks (X-Tera-Signature).
+   FAILS CLOSED. It used to `return true` when no secret was configured, so on any
+   install where IDATAGH_WEBHOOK_SECRET was unset (it is blank in the example env)
+   an anonymous POST could mark a paid order delivered or failed — silently editing
+   the record the owner uses to decide who gets a refund. An unset secret is a
+   misconfiguration, not permission, so the answer is no; the boot alert and the
+   dashboard say why. */
 function verifyHmac(rawBody, signature, secret) {
-  if (!secret) return true;
+  if (!secret) return false;
   const expected = crypto.createHmac("sha256", String(secret)).update(rawBody || Buffer.from("")).digest("hex");
   const got = String(signature || "");
   if (got.length !== expected.length) return false;

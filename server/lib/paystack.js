@@ -1,12 +1,22 @@
-const SECRET = process.env.PAYSTACK_SECRET_KEY;
+/* The key is read AT CALL TIME, never captured at require time.
+   It used to be `const SECRET = process.env.PAYSTACK_SECRET_KEY` at the top of this
+   file, which meant the dashboard's key rotation wrote the new value to .env and to
+   process.env while every API call — checkout, verify, refund — kept using the old
+   one until the service restarted. Rotating a leaked key did not revoke it, and the
+   pre-save check in /api/admin/credentials authenticated with the OLD key, so a new
+   key that was already dead still passed validation. The iDATA client reads its
+   credentials per call for exactly this reason; this is the same rule. */
+const currentSecret = () => String(process.env.PAYSTACK_SECRET_KEY || "");
 
 // Base URL is overridable only so the reconcilers can be tested against a stub
 // instead of the live API. It is never set in production, so the live site always
 // talks to Paystack. A non-empty value here must be treated as a test/staging
 // setting and never committed to the server's .env.
-const BASE = process.env.PAYSTACK_API_BASE || "https://api.paystack.co";
+const baseUrl = () => process.env.PAYSTACK_API_BASE || "https://api.paystack.co";
 
 async function paystack(path, opts = {}) {
+  const SECRET = currentSecret();
+  const BASE = baseUrl();
   if (!SECRET) throw new Error("Paystack not configured");
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
@@ -22,7 +32,7 @@ async function paystack(path, opts = {}) {
 }
 
 function initialized() {
-  return Boolean(SECRET);
+  return Boolean(currentSecret());
 }
 
 // Returns an initialize response: { authorization_url, reference }

@@ -65,6 +65,9 @@
     </div>
     <main class="wrap-wide" style="padding:28px 24px 64px">
       <div class="grid-features" id="stats"></div>
+      <!-- Configuration that changes what the site actually does (mock supplier,
+           refused webhook updates). Hidden unless one of them is wrong. -->
+      <div class="feature" id="cfgWarn" hidden style="border-color:#b91c1c;color:#b91c1c"></div>
       <div class="admin-tabs" role="tablist">
         <button type="button" class="admin-tab active" data-tab="orders">Orders</button>
         <button type="button" class="admin-tab" data-tab="users">Customers</button>
@@ -86,6 +89,10 @@
             <p>The <b>Paystack ref</b> is the one Paystack emailed the customer and the one you search for in your Paystack dashboard. The <b>Supplier ref</b> is the supplier's own order number, only useful if you need to ask them about a specific delivery. They are different numbers for the same order, so <b>No card payment</b> means the customer paid by MoMo or cash and never used Paystack. Use the search box to find an order by either reference, the order number, the phone or the tracking code.</p>
           </details>
         <input id="ordFilter" type="search" placeholder="Find an order: ref, number or phone" aria-label="Find an order" class="ord-search" />
+        <!-- Says how many orders the search found ACROSS ALL of them, so "no match"
+             can never be misread as "that order does not exist" when the list is only
+             showing the most recent sixty. -->
+        <p class="dim" id="ordSearchNote" style="margin:6px 0 0"></p>
         <div class="order-live" hidden></div>
         <div class="ord-tools">
           <button type="button" class="link-btn" id="ordLiveToggle" aria-pressed="true">Pause</button>

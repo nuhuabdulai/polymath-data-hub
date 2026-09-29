@@ -202,9 +202,14 @@ const login = () => api("POST", "/api/admin/login", { user: "t", pass: "t" });
   await stopApp("SIGKILL");                           // hard crash, no graceful shutdown
   await inflight.catch(() => {});
   note(`supplier had already received ${calls("crash")} order(s) when the box died`);
-  note(`order on disk at crash: status=${onDiskAtCrash.status} sendAttempts=${onDiskAtCrash.sendAttempts} providerRef=${onDiskAtCrash.providerRef} autoSendTriedAt=${onDiskAtCrash.autoSendTriedAt}`);
+  /* Either marker counts as the claim: autoSendTriedAt is the automatic path's,
+     sendClaimedAt is the one a hand-started send writes. What matters is that the
+     ORDER ON DISK says a supplier call was attempted — that is the only thing that
+     can stop the next press from buying it again. */
+  const claimAtCrash = onDiskAtCrash.sendClaimedAt || onDiskAtCrash.autoSendTriedAt;
+  note(`order on disk at crash: status=${onDiskAtCrash.status} sendAttempts=${onDiskAtCrash.sendAttempts} providerRef=${onDiskAtCrash.providerRef} sendClaimedAt=${onDiskAtCrash.sendClaimedAt} autoSendTriedAt=${onDiskAtCrash.autoSendTriedAt}`);
   ok("the attempt is recorded on disk before the supplier is called",
-    Boolean(onDiskAtCrash.autoSendTriedAt) || Number(onDiskAtCrash.sendAttempts) > 0,
+    Boolean(claimAtCrash) || Number(onDiskAtCrash.sendAttempts) > 0,
     "nothing on disk says a supplier call was in flight");
 
   /* ------------------------------------------------------------------ 3 */
@@ -276,6 +281,72 @@ const login = () => api("POST", "/api/admin/login", { user: "t", pass: "t" });
   ok("after a key rotation, API calls use the NEW key",
     stub.lastAuth.length > 0 && stub.lastAuth.every((h) => h === "Bearer sk_new_rotated_key_1"),
     "the server is still spending/refunding with the key that was meant to be replaced");
+
+  /* ------------------------------------------------------------------ 8 */
+  console.log("\n  8. THE ESCAPE HATCH: releasing a claim, and it still sends only once");
+  stub.tag = "release";
+  write([order({ id: "REL1", status: "failed", sendAttempts: 1, sendFailedAt: new Date().toISOString(), sendClaimedAt: new Date().toISOString(), sendClaimedFor: "admin", autoSendTriedAt: new Date().toISOString() })]);
+  const noWho = await api("POST", "/api/admin/orders/REL1/clear-send-claim", {}, true);
+  note(`release with no confirmation answered ${noWho.code}`);
+  ok("a claim cannot be released without saying who confirmed it", noWho.code === 400 && calls("release") === 0,
+    "the release did not require evidence (code " + noWho.code + ")");
+
+  const released = await api("POST", "/api/admin/orders/REL1/clear-send-claim", { confirmedBy: "iDATA agent Kofi: no order on their dashboard" }, true);
+  const afterRelease = get("REL1");
+  note(`release answered ${released.code}; claim now sendClaimedAt=${afterRelease.sendClaimedAt} autoSendTriedAt=${afterRelease.autoSendTriedAt} releasedBy=${afterRelease.sendClaimReleasedBy}`);
+  ok("a confirmed release clears the claim and records who authorised it",
+    released.code === 200 && !afterRelease.sendClaimedAt && !afterRelease.autoSendTriedAt && Boolean(afterRelease.sendClaimReleasedBy),
+    JSON.stringify(released.body));
+
+  const sentAgain = await api("POST", "/api/admin/orders/REL1/status", { status: "processing" }, true);
+  note(`send after release answered ${sentAgain.code}; supplier arrivals during 'release' = ${calls("release")}`);
+  ok("after a release the order CAN be sent — exactly once", calls("release") === 1,
+    `expected 1 supplier call, saw ${calls("release")} (answer ${sentAgain.code})`);
+
+  const thirdPress = await api("POST", "/api/admin/orders/REL1/status", { status: "processing" }, true);
+  ok("and it cannot be sent yet again", thirdPress.code === 409 && calls("release") === 1,
+    `a third press bought it again (code ${thirdPress.code}, calls ${calls("release")})`);
+
+  /* ------------------------------------------------------------------ 9 */
+  console.log("\n  9. LEGACY ORDER: a recorded attempt but no claim (written by the old code)");
+  stub.tag = "legacy";
+  write([order({
+    id: "LEG1", status: "failed", sendAttempts: 1,
+    sendFailedAt: new Date(Date.now() - 60000).toISOString(),
+    sendClaimedAt: null, sendClaimedFor: null, autoSendTriedAt: null,
+  })]);
+  const legacyPress = await api("POST", "/api/admin/orders/LEG1/status", { status: "processing" }, true);
+  note(`press on an old-style order answered ${legacyPress.code}`);
+  ok("an old order with a recorded attempt is still blocked", legacyPress.code === 409 && calls("legacy") === 0,
+    `an order from before the fix was re-sent without review (code ${legacyPress.code}, calls ${calls("legacy")})`);
+
+  const legacyRelease = await api("POST", "/api/admin/orders/LEG1/clear-send-claim",
+    { confirmedBy: "iDATA dashboard: no such order" }, true);
+  const legacyAfter = get("LEG1");
+  ok("and it can still be released by hand, which records the authorisation",
+    legacyRelease.code === 200 && Boolean(legacyAfter.sendRetryAuthorisedAt),
+    JSON.stringify(legacyRelease.body));
+
+  await api("POST", "/api/admin/orders/LEG1/status", { status: "processing" }, true);
+  note(`supplier arrivals during 'legacy' = ${calls("legacy")}`);
+  ok("after that it sends exactly once", calls("legacy") === 1, `supplier calls = ${calls("legacy")}`);
+
+  /* ------------------------------------------------------------------ 10 */
+  console.log("\n  10. FINDING AN ORDER THAT IS NOT IN THE MOST RECENT 60");
+  const many = [];
+  for (let i = 0; i < 70; i++) {
+    many.push(order({ id: `OLD${String(i).padStart(3, "0")}`, status: "delivered", providerRef: `IDATA-${i}`, sendAttempts: 1, created: new Date(Date.now() - (200 - i) * 60000).toISOString() }));
+  }
+  write(many);
+  const win = await api("GET", "/api/admin/orders", null, true);
+  const found = await api("GET", "/api/admin/orders?q=OLD000&limit=10", null, true);
+  note(`default poll returns ${win.body.orders.length} rows; searching for OLD000 matched ${found.body.matched}`);
+  ok("the default list stays a short recent window", win.body.orders.length === 60, `rows=${win.body.orders.length}`);
+  ok("but a search looks through every order",
+    found.body.matched === 1 && found.body.orders.some((o) => o.id === "OLD000"),
+    "an order outside the recent window could not be found from the dashboard");
+  const byPhone = await api("GET", "/api/admin/orders?q=0240000000", null, true);
+  ok("and it finds orders by the number they were sent to", byPhone.body.matched === 70, `matched=${byPhone.body.matched}`);
 
   await stopApp();
   stubServer.close();

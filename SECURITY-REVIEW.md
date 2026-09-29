@@ -13,6 +13,39 @@ is the point: the harness can kill the process mid-call, which you cannot do to 
 
 ---
 
+## Update — fixes applied
+
+Every finding below has since been fixed on this branch, and the harness that proved the failures now
+proves the fixes. The sections that follow are the original, pre-fix record — kept because a review
+that quietly rewrites itself is worth less than one that says what it saw.
+
+```
+node test/supplier-send-safety.js   # was 2 passed, 6 failed  ->  now 18 passed, 0 failed
+node test/refund-safety.js          # 42 passed, 0 failed     (unchanged, still green)
+```
+
+| # | Status | What changed |
+|---|---|---|
+| F1 | **Fixed** | `sendClaimedAt` / `sendClaimedFor` are written to disk before any owner-initiated send, in both admin routes, mirroring `autoSendTriedAt` on the automatic path. One `sendBlockedReason()` decides whether an order may be sent — supplier reference, then claim, then a bare attempt counter from pre-fix data — and the dashboard renders the button from that same decision (`sendable`), so the two cannot disagree. The only way past a claim is the new `POST /api/admin/orders/:id/clear-send-claim`, which requires the owner to name who at the supplier confirmed the order never arrived and records it on the order and in the activity trail. No timer, deliberately. |
+| F2 | **Fixed** | `paystack.js` reads the key (and base URL) at call time via `currentSecret()`; `initialized()` follows. The rotation test now sees the new key on every call. |
+| F3 | **Fixed** | `verifyHmac` fails closed when no secret is set; the webhook route raises a `webhook-secret-missing` security alert, `/api/health` reports `supplierWebhook: "unsigned"`, and the dashboard shows it in red. |
+| F4 | **Fixed** | The refund route refuses `paid`/`processing` orders that carry a supplier reference unless the request confirms the loss explicitly (`confirmInFlight: true`, which the dashboard only sends after a confirmation that spells out the consequence). The confirmation is recorded on the order before the money moves. |
+| F5 | **Fixed** | dotenv loads `server/.env` by path, and mock mode is opt-in (`IDATAGH_USE_MOCK` must be exactly `1`) at all ten call sites. `/api/health` and a dashboard banner announce mock mode and an unsigned webhook. |
+| F6 | **Fixed** | The bulk-order route runs the same per-number check as the storefront and refuses the batch with the offending numbers listed, before the wallet is debited. |
+| F7 | **Fixed** | `/api/admin/orders` accepts a server-side search (`q`, `status`, `limit`, `offset`) so the dashboard can find an order beyond the 60 most recent, and the UI's search box uses it and reports how many matched across all orders. Covered by checks in the supplier harness (the default window stays cheap; a search reaches order #70). |
+| F8 | **Mostly fixed** | `creditTopupOnce` returns one shape; `classifyProviderResponse` trusts an explicit status over prose; `normalize()` has real field defaults; a sale at or below supplier cost now raises an alert naming the order and both figures (rather than silently changing prices, which is the owner's call). The `security.txt` placeholders are **left alone on purpose** — filling them in means inventing a security contact, which only the owner can supply. |
+
+Two things worth knowing about the fix itself:
+
+- **A failed send now takes two deliberate steps to retry** (release, then send) instead of one. That
+  is the intended trade: a timeout is ambiguous, and the harness shows a re-press after a crash used
+  to buy the bundle a second time.
+- **`autoSendTriedAt` is cleared by a release.** It has to be, or an order whose automatic send failed
+  could never be re-sent. That cannot restart an automatic loop: `autoApproveAndSend()` only ever acts
+  on an order that is still `pending_payment`, and a failed order is not.
+
+---
+
 ## Verdict in one paragraph
 
 The **automatic** path is genuinely fixed. The durable-claim rule really is implemented in
