@@ -13,6 +13,30 @@ function cfg(key, fallback = "") {
   return v === undefined || v === "" ? fallback : v;
 }
 
+/* Mock mode is OFF unless it is deliberately switched on.
+
+   It used to default to ON, and it ALSO engaged whenever IDATAGH_API_URL was
+   missing. Combined with dotenv loading from process.cwd() rather than this
+   file's directory, a fresh deploy that followed the README's own setup
+   instructions ended up with no configuration at all - and therefore a storefront
+   that took real money, reported "Delivered successfully", wrote providerRef
+   MOCK-... to the order, and delivered nothing. Verified by the independent
+   review of 2026-09-29.
+
+   Faking a delivery is only acceptable when a person asked for it. Everything
+   else now fails closed: with no API URL and no explicit mock, buying REFUSES and
+   the order surfaces as a visible failure with an owner alert, instead of a
+   silent fake success. */
+function mockEnabled() {
+  return cfg("IDATAGH_USE_MOCK", "") === "1";
+}
+function supplierConfigured() {
+  return Boolean(String(cfg("IDATAGH_API_URL", "") || "").trim());
+}
+function mockOrUnconfigured() {
+  return mockEnabled() || !supplierConfigured();
+}
+
 const P_PATH = cfg("IDATAGH_PATH_PRODUCTS", "packages");
 const P_BUY = cfg("IDATAGH_PATH_BUY", "place-order");
 const P_WALLET = cfg("IDATAGH_PATH_WALLET", "wallet-balance");
@@ -47,7 +71,8 @@ function mockProducts() {
 /* ---------- low level ---------- */
 async function send(method, path, body) {
   const base = cfg("IDATAGH_API_URL");
-  if (!base || cfg("IDATAGH_USE_MOCK", "1") === "1") return null;
+  if (mockEnabled()) return null;
+  if (!base) throw new Error("Supplier is not configured: set IDATAGH_API_URL (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
   const headers = {};
   const headersInit = () => {
     if (!headers.Authorization && !headers[cfg("IDATAGH_AUTH_HEADER") || "X-Api-Key"]) {
@@ -143,7 +168,8 @@ function normalize(raw, networkOverride = "") {
 
 /* ---------- high level ---------- */
 async function listProducts() {
-  const mock = cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL");
+  const mock = mockEnabled();
+  if (!mock && !supplierConfigured()) throw new Error("Supplier is not configured: set IDATAGH_API_URL and IDATAGH_API_KEY (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
   if (mock) { await mockDelay(); return mockProducts(); }
   if (Date.now() - cache.products.at < cache.ttlMs && cache.products.data) return cache.products.data;
   const fan = P_PATH.includes("{network}");
@@ -193,13 +219,38 @@ function classifyProviderResponse(raw) {
   const status = providerStatus(raw);
   const message = providerMessage(raw);
   const messageText = message.toLowerCase();
-  if (/fail|reject|cancel|error|declin/.test(status) || /fail|reject|cancel|error|declin/.test(messageText)) return "failed";
-  if (/delivered|completed|fulfilled/.test(status) || /successfully\s+(delivered|completed|fulfilled)|(?:delivered|completed|fulfilled)\s+successfully|delivery\s+completed/.test(messageText)) return "delivered";
+  /* Order matters, and it used to be the wrong way round. Failure words were
+     tested against the MESSAGE TEXT before the status was consulted, so a success
+     message that happened to contain "no errors" or "cancellation window" was
+     classified FAILED - parking an order that had actually been delivered as one
+     that was not, which is how a customer gets refunded for data they received.
+     Found by the independent review of 2026-09-29.
+
+     An explicit status is the supplier telling us what happened, so it is
+     trusted first. Message text is only used to break a tie, or when the status is
+     missing or ambiguous. */
+  const DELIVERED_STATUS = /^(delivered|completed|fulfilled|delivered_successfully)$/i;
+  const FAILED_STATUS = /^(fail|failed|rejected|cancelled|canceled|declined|error)$/i;
+  /* "success" from this supplier means ACCEPTED, not delivered. Marking an
+     accepted order delivered is the exact false-positive the project already
+     learned to avoid: the owner sees Delivered while the network has not sent
+     anything, and stops chasing a real problem. */
+  const ACCEPTED_STATUS = /^(success|successful|accepted|approved|pending|processing|queued|in_progress|new|created)$/i;
+  if (DELIVERED_STATUS.test(status)) return "delivered";
+  if (FAILED_STATUS.test(status)) return "failed";
+  if (/successfully\s+(delivered|completed|fulfilled)|(?:delivered|completed|fulfilled)\s+successfully|delivery\s+completed/.test(messageText)) return "delivered";
+  /* A status that explicitly means "accepted" settles it: message wording must
+     not talk it into a failure. A supplier whose status says success is not
+     telling us it failed just because its sentence contains the word "cancel". */
+  if (ACCEPTED_STATUS.test(status)) return "processing";
+  /* Failure wording only counts when the status is missing or unrecognised. */
+  if (/fail|reject|cancel|error|declin/.test(messageText)) return "failed";
   return "processing";
 }
 
 async function buyBundle({ planId, network, phone, reference }) {
-  const mock = cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL");
+  const mock = mockEnabled();
+  if (!mock && !supplierConfigured()) throw new Error("Supplier is not configured: set IDATAGH_API_URL and IDATAGH_API_KEY (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
   if (mock) {
     await mockDelay(700);
     const plan = mockProducts().find((p) => String(p.id) === String(planId));
@@ -255,7 +306,8 @@ async function buyBundle({ planId, network, phone, reference }) {
 }
 
 async function walletBalance() {
-  const mock = cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL");
+  const mock = mockEnabled();
+  if (!mock && !supplierConfigured()) throw new Error("Supplier is not configured: set IDATAGH_API_URL and IDATAGH_API_KEY (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
   if (mock) return { balance: 0, raw: null };
   const data = await send("GET", P_WALLET);
   const b = data && (data.balance ?? data.wallet ?? (data.data && data.data.balance));
@@ -263,19 +315,37 @@ async function walletBalance() {
 }
 
 async function registerWebhook(url) {
-  if (cfg("IDATAGH_USE_MOCK", "1") === "1" || !cfg("IDATAGH_API_URL")) return { mock: true };
+  if (mockEnabled()) return { mock: true };
+  if (!supplierConfigured()) return { mock: false, error: "Supplier is not configured" };
   return send("POST", P_WEBHOOK, { webhook_url: url });
 }
 
-/* HMAC-SHA256 signature check for incoming webhooks (X-Tera-Signature). */
+/* HMAC-SHA256 signature check for incoming webhooks (X-Tera-Signature).
+
+   This FAILED OPEN until 2026-09-29. `if (!secret) return true` meant that an
+   unset IDATAGH_WEBHOOK_SECRET - which is also the value in .env.example, so a
+   fresh deploy has none - meant "trust any anonymous POST". An attacker who knows
+   or guesses an order reference could mark a paid order delivered (dropping it off
+   the "never sent" alarm and off the refund-owed list) or failed (telling the
+   owner to refund someone who was already served), and the handler wrote
+   providerRef from whatever the caller sent.
+
+   An unset secret is a MISCURATION, not permission. Failing closed costs nothing
+   here: the site already has watchStuckOrders, the card reconciler and manual
+   status control, so refusing unauthenticated input loses no real delivery.
+   webhooksConfigured() lets the admin warn the owner about the misconfiguration. */
 function verifyHmac(rawBody, signature, secret) {
-  if (!secret) return true;
+  if (!secret || !String(secret).trim()) return false;
   const expected = crypto.createHmac("sha256", String(secret)).update(rawBody || Buffer.from("")).digest("hex");
   const got = String(signature || "");
   if (got.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
+}
+
+function webhooksConfigured() {
+  return Boolean(String(cfg("IDATAGH_WEBHOOK_SECRET", "") || "").trim());
 }
 
 /* Drop the cached catalog. Called when the supplier credentials change from the
@@ -287,6 +357,7 @@ function clearCache() {
 }
 
 module.exports = {
-  listProducts, buyBundle, walletBalance, registerWebhook, verifyHmac, clearCache,
+  listProducts, buyBundle, walletBalance, registerWebhook, verifyHmac, webhooksConfigured, mockEnabled,
+  supplierConfigured, clearCache,
   normalize, mockProducts, pretty, slugify, classifyProviderResponse, providerStatus, providerMessage,
 };

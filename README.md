@@ -26,9 +26,9 @@ Five places can change money. They are the review targets.
 
 | Where | What it does | The guarantee it must keep |
 |---|---|---|
-| `autoApproveAndSend()` | Sends a paid order to the supplier | One supplier purchase per order, **ever** |
-| `POST /api/admin/orders/:id/status` | Owner-initiated supplier send | Cannot send an order that already has a supplier reference |
-| `POST /api/admin/orders/:id/refund` | Returns money to a customer | Claims the order on disk **before** calling Paystack; never auto-retries |
+| `claimOrderForSend()` | **The only** function that may contact the supplier | Takes an in-process lock, re-reads from disk, re-checks every guard, then writes the claim **before** the call |
+| `autoApproveAndSend()` | Releases a paid card order automatically | Shares the same lock and claim field as the manual paths |
+| `POST /api/admin/orders/:id/refund` | Returns money to a customer | Claims the order on disk **before** calling Paystack; never auto-retries; refuses while the supplier still holds the order |
 | `reconcileCardPayments()` (60s) | Releases orders whose webhook never arrived | Refuses to act unless the status is still `pending_payment`; re-reads the order from disk first |
 | `reconcileCardTopups()` (60s) | Credits a wallet | Credits once, via `creditTopupOnce()`; a replayed webhook is a no-op |
 
@@ -37,42 +37,66 @@ Five places can change money. They are the review targets.
 > **A durable claim is written to disk before any external call that spends money,
 > and no failure path ever retries automatically.**
 
-`autoSendTriedAt` is the claim for the supplier send. `refundStatus: "pending"`
-is the claim for the refund. Both are checked by every path that can act, so a
-retry loop, a double click, a crash or a restart all land on "already handled".
+The claim is the order field `autoSendTriedAt` (the name is historical — it means
+"a supplier send was claimed for this order", whoever triggered it). It is never
+cleared automatically, even on a timer, because a timeout is **ambiguous**: the
+request may or may not have reached the provider. Retrying turns one lost sale
+into two, or one customer paid twice. A claimed-but-unconfirmed order is parked
+for a human, with an alert naming the order, the amount and the reference to
+check.
 
-The reason a failure is never auto-retried is specific, not general caution: a
-timeout is **ambiguous**. The request may or may not have reached the provider.
-Retrying turns one lost sale into two, or one customer paid twice. So a failure
-is parked for a human, with an alert naming the order, the amount and the
-reference to check.
+Three independent, in-process guards back the disk claim: the `sendLock` (so two
+concurrent requests cannot both proceed), the re-read from disk, and the guard
+re-checks. Any one alone is insufficient — the disk claim does not stop two
+processes, and the lock does not survive a restart.
 
 ## The tests
 
-`test/refund-safety.js` is a self-contained harness: 42 checks against a **stub**
-Paystack on an isolated copy of the app. It never touches real money and never
-needs the network.
+Two harnesses, 50 checks, both self-contained: they stage a private copy of the
+app, run it against **stub** suppliers, and never touch the network or real money.
 
 ```bash
-npm install
-node test/refund-safety.js
+cd server && npm install && cd ..
+node test/refund-safety.js          # 42 checks: refunds, cancels, auth
+node test/supplier-send-safety.js   #  8 checks: the supplier-send claim
 ```
 
-It covers the cases that actually cost money, and it is the part of this
+They cover the cases that actually cost money, and they are the part of this
 repository most worth improving:
 
 - a card refund that is pressed twice
 - a charge the owner **already refunded by hand** in the dashboard (the most
   likely way to double-refund, and the check that happens first)
-- a provider call that fails
-- a connection dropped *mid-refund* — the claim must survive and the retry must
-  be refused
-- cancelling a delivered order, or one the supplier already has (must be refused)
+- a connection dropped *mid-refund* — the claim must survive and the retry refused
+- **two concurrent "Process" presses** — must buy the bundle exactly once
+- **`SIGKILL` while the supplier is answering** — the claim must already be on disk
+- the owner re-opening the admin after that crash and pressing Process again
+- a refund attempted while the supplier still holds the order
+- an unauthenticated supplier webhook
+- rotating the payment key and proving the new one is actually used
+- cancelling a delivered order, or one the supplier already has
 - every route without a session (must be 401)
 
-A single assertion that would have caught the original outage, and a good place
-to start: assert that a supplier stub is called **exactly once** across a
-simulated crash-and-restart.
+A good next test: a claim-and-restart check across a real process boundary, not
+just an in-process kill.
+
+## What an independent review changed (2026-09-29)
+
+`SECURITY-REVIEW.md` in this repository is an external review of the previous
+commit. It found the human-triggered send paths did **not** obey the claim rule —
+the same bug as the original outage, triggered by a person instead of a loop.
+All eight checks it added failed; all eight pass now. Its findings are recorded
+here rather than quietly fixed:
+
+| # | Finding | Fix |
+|---|---|---|
+| F1 critical | Admin "Process" and "Mark paid" wrote no claim before the supplier call — a double press, a client retry, two devices, or a crash all bought the bundle twice | One `claimOrderForSend()` gate for every send path |
+| F2 high | The payment key was captured at boot, so rotating a leaked key did nothing, and the rotation validated the new key using the old one | Read the key per call |
+| F3 high | The supplier webhook **failed open** when its secret was unset — an anonymous POST could mark a paid order delivered or failed | Fail closed, plus a boot-time owner alert |
+| F4 medium | A refund was allowed while the supplier still held the order: the customer was paid back *and* received the bundle | Refuse, with an explicit `confirmInFlight` override |
+| F5 medium | `dotenv` read from the working directory, so the documented setup ignored `.env`; and mock mode defaulted ON, so a fresh deploy reported "Delivered successfully" and delivered nothing | Path pinned to `__dirname`; mock requires explicit opt-in and otherwise **refuses to sell** |
+| F6 medium | Bulk orders only checked for duplicates inside their own batch, so a number with an existing open order was still bought | Per-row check against open orders |
+| F8 | A success message containing "no errors" was classified as a failure; `creditTopupOnce` returned a bare `false` to callers reading `.error` | Explicit status trusted first; consistent return shape |
 
 ## Known weaknesses, stated up front
 

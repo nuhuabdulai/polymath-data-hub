@@ -1,9 +1,28 @@
-require("dotenv").config();
+/* Point dotenv at THIS FILE's directory, not at process.cwd().
+
+   It used to be a bare `require("dotenv").config()`, which resolves .env against
+   the directory the process was started from. The documented setup in the README
+   is `node server/server.js` from the repository root, so every setting in
+   server/.env was silently ignored. The independent review of 2026-09-29 measured
+   ADMIN_USER as "owner" when started from server/ and undefined when started from
+   the root.
+
+   That was not just a login inconvenience: with no environment loaded, mock mode
+   defaulted ON (see mockEnabled in lib/idatagh.js) and the storefront reported
+   "Delivered successfully" for money it had not delivered. Fixing the path AND
+   inverting the mock default are both required - either alone still leaves a
+   storefront that can lie. */
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const idatagh = require("./lib/idatagh");
+
+/* Mock mode is decided in ONE place, the supplier adapter, so the API, the health
+   endpoint, the admin banner and the supplier calls can never disagree about
+   whether this storefront is talking to a real supplier. */
+const mockEnabled = () => idatagh.mockEnabled();
 const paystack = require("./lib/paystack");
 
 const app = express();
@@ -438,7 +457,11 @@ const TOPUP_RECONCILE_AFTER_MS = 90 * 1000;
    durable claim, written before the balance changes, so a replayed webhook and a
    reconciler pass landing together can still only ever credit once. */
 function creditTopupOnce(topups, topup) {
-  if (!topup || topup.credited || topup.status === "paid") return false;
+  /* Return a consistent shape. This used to return a bare `false` for an
+     already-credited top-up while every other path returned an object, so callers
+     that read r.error got undefined and logged an alert claiming a PAID top-up
+     was not credited. Found by the independent review of 2026-09-29. */
+  if (!topup || topup.credited || topup.status === "paid") return { ok: false, alreadyCredited: true, error: "This top-up was already credited, so it was not credited again." };
   const users = loadUsers();
   const u = users.find((x) => x.id === topup.userId);
   if (!u) {
@@ -2330,7 +2353,7 @@ async function supplierSnapshot() {
 }
 
 async function supplierPurchaseGuard(cost) {
-  if (cfg("IDATAGH_USE_MOCK", "1") === "1") return { ok: true, mock: true };
+  if (mockEnabled()) return { ok: true, mock: true };
   const required = Number(cost);
   if (!Number.isFinite(required) || required <= 0) {
     return { ok: false, status: 503, error: "Data is temporarily unavailable. Please try again shortly." };
@@ -2358,7 +2381,7 @@ app.get("/api/admin/supplier", requireAdmin, async (req, res) => {
    upstream wallet is empty or the API is down. Debounced so it cannot spam. */
 let supplierLastAlert = { key: "", at: 0 };
 async function supplierHealthCheck() {
-  if (cfg("IDATAGH_USE_MOCK", "0") === "1") return;
+  if (mockEnabled()) return;
   let s;
   try { s = await supplierSnapshot(); } catch (_) { return; }
   let key = "";
@@ -2592,6 +2615,22 @@ app.post("/api/wallet/bulk-order", requireUser, rateLimit(LIMIT_WINDOW, 5), asyn
   // duplicate in a bulk list cannot be silently rejected by the network.
   const dupes = validatedDupes(rows);
   if (dupes.length) return res.status(409).json({ error: `These numbers appear more than once in your list: ${dupes.join(", ")}. One order at a time per number, or the network can reject one with no refund.`, code: "same_number_too_soon" });
+  /* The batch was only checked against ITSELF. A number could already have an open
+     order from an earlier single or bulk purchase, and the supplier rejects a
+     second order for the same number in the same period with NO refund - the
+     customer is charged for the whole batch and the owner loses a row. Found by
+     the independent review of 2026-09-29. Same rule as the storefront, applied
+     per row, before any money is taken. */
+  const alreadyOpen = [];
+  for (const r of rows) {
+    const digits = String(r.phone || "").replace(/\D/g, "").replace(/^233/, "0");
+    if (!digits) continue;
+    if (recentOrderForNumber(digits, SAME_NUMBER_WINDOW_MS)) alreadyOpen.push(digits);
+  }
+  if (alreadyOpen.length) {
+    const list = [...new Set(alreadyOpen)].slice(0, 6).join(", ");
+    return res.status(409).json({ error: `These numbers already have an order in progress: ${list}. One order at a time per number, or the network can reject one with no refund.`, code: "same_number_too_soon" });
+  }
   const products = await idatagh.listProducts();
   const users = loadUsers();
   const me = users.find((u) => u.id === req.user.id);
@@ -2644,7 +2683,7 @@ app.use(express.static(path.join(__dirname, "..", "public"), { maxAge: "1y", imm
   else if (/\.(js|css)$/i.test(filePath)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
 } }));
 
-app.get("/api/health", (req, res) => res.json({ ok: true, mode: cfg("IDATAGH_USE_MOCK", "1") === "1" ? "mock" : "live" }));
+app.get("/api/health", (req, res) => res.json({ ok: true, mode: mockEnabled() ? "mock" : "live" }));
 
 app.get("/api/config", (req, res) => {
   const status = loadJson(STATUS_FILE, { mtn: "normal", telecel: "normal", airteltigo: "normal", message: "" });
@@ -2692,7 +2731,7 @@ app.get("/api/products", async (req, res) => {
       if (!bestPerNet[k] || p.pricePerGb < bestPerNet[k].pricePerGb) bestPerNet[k] = p;
     }
     for (const p of enriched) p.bestValue = bestPerNet[p.network] && String(bestPerNet[p.network].id) === String(p.id);
-    res.json({ products: enriched, source: cfg("IDATAGH_USE_MOCK", "1") === "1" ? "mock" : "live", updated: new Date().toISOString() });
+    res.json({ products: enriched, source: mockEnabled() ? "mock" : "live", updated: new Date().toISOString() });
   } catch (e) {
     res.status(502).json({ error: "Data is temporarily unavailable. Please try again shortly." });
   }
@@ -2888,6 +2927,85 @@ function markSupplierSendFailed(orders, order, reason) {
   return order;
 }
 
+/* ---------- the single gate every supplier send must pass ----------
+
+   Independent review (2026-09-29, Arena branch) found that the two ADMIN send
+   routes - "Process" and "Mark paid & send" - did NOT obey the durable-claim rule
+   that the automatic path obeys. They read the guard, called the supplier, and
+   only wrote afterwards. That is the same bug as the original outage, triggered by
+   a person instead of a loop: a double press, a client timeout retry, the same
+   dashboard open on two devices, or a crash mid-send all buy the bundle TWICE for
+   one payment. It was reproduced three ways in test/supplier-send-safety.js.
+
+   So there is now exactly one function that may spend supplier money, and it
+   always does the same three things in this order:
+     1. take the in-process lock, so two concurrent requests cannot both proceed
+     2. re-read the order from disk and re-check every guard
+     3. write the claim to disk BEFORE contacting the supplier
+
+   The on-disk claim is the field `autoSendTriedAt`. The name is historical - it
+   now means "a supplier send was claimed for this order", whoever triggered it -
+   and it is deliberately NOT renamed, because existing orders already carry it and
+   two claim fields is exactly the divergence this function exists to remove.
+
+   A claim is never cleared automatically, even on a timer. A timeout is
+   ambiguous: the request may or may not have reached the supplier, and a blind
+   retry is how one lost sale becomes two. A claimed-but-unconfirmed order is
+   parked for the owner to check with iDATA first. */
+function sendClaimed(o) {
+  return Boolean(o && o.autoSendTriedAt);
+}
+
+/* Returns { ok:false, code, error } without spending anything, or { ok:true, order }
+   after the result has been written to disk. */
+async function claimOrderForSend(orderId) {
+  if (sendLock.has(orderId)) {
+    return { ok: false, code: 409, error: "That order is already being sent to the supplier. Wait for it to finish." };
+  }
+  sendLock.add(orderId);
+  try {
+    /* Always re-read from disk. The caller's copy may be stale: a webhook, a
+       reconciler or another admin press may have claimed this order while the
+       request was in flight. */
+    const rows = loadOrders();
+    const order = rows.find((o) => o.id === orderId);
+    if (!order) return { ok: false, code: 404, error: "Order not found" };
+
+    /* Every guard, re-checked against the freshest copy. A supplier reference
+       means iDATA already has the order, and their notice is explicit that a
+       second order for the same number in the same period is rejected with NO
+       refund. A recorded attempt means this order was already tried, even if no
+       reference came back. The one order that may be retried is one the supplier
+       actively REJECTED, because a rejection means iDATA never created it. */
+    if (order.providerRef) {
+      return { ok: false, code: 409, error: "This order was already sent to the supplier, so it cannot be sent again. Check its status instead." };
+    }
+    if (sendClaimed(order)) {
+      return { ok: false, code: 409, error: "This order was already claimed for sending to the supplier, but no supplier reference came back. It will not be sent again automatically. Check with iDATA first, then use the confirmed override if it truly never reached them." };
+    }
+    if (Number(order.sendAttempts) > 0 && order.status !== "failed") {
+      return { ok: false, code: 409, error: `This order has already been sent to the supplier (${order.sendAttempts} attempt${Number(order.sendAttempts) === 1 ? "" : "s"}). It will not be sent again. If the supplier rejected it, check with iDATA first.` };
+    }
+
+    /* THE CLAIM. Written and fsync'd to disk before the supplier is contacted, so
+       a crash, a kill, or a process restart cannot leave this order looking
+       unsent when the supplier may already have it. */
+    order.autoSendTriedAt = new Date().toISOString();
+    order.status = "paid";
+    order.awaitingApproval = false;
+    saveOrders(rows);
+
+    const sent = await sendOrderToSupplier(rows, order);
+    /* Persist the RESULT, so a successful send leaves a supplier reference on
+       disk and the admin stops offering a Send button for an order that has
+       already been bought. */
+    saveOrders(rows);
+    return { ok: true, order, sent };
+  } finally {
+    sendLock.delete(orderId);
+  }
+}
+
 async function sendOrderToSupplier(orders, order) {
   try {
     /* The network MUST be passed. It was missing here, and buyBundle's slugify
@@ -3069,7 +3187,7 @@ app.get("/api/admin/summary", requireAdmin, async (req, res) => {
     customers: loadUsers().length,
     topupPending: loadTopups().filter((t) => t.status === "pending").length,
     config: {
-      apiMock: cfg("IDATAGH_USE_MOCK", "1") === "1",
+      apiMock: mockEnabled(),
       apiUrl: cfg("IDATAGH_API_URL"),
       paystackOn: paystack.initialized(),
       adminUser: req.admin.user,
@@ -3119,22 +3237,21 @@ app.post("/api/admin/orders/:id/mark-paid", requireAdmin, rateLimit(LIMIT_WINDOW
   // abandoned), which the owner must still be able to approve once the customer
   // pays another way, or the order can never be fulfilled at all.
   if (!["pending", "pending_payment"].includes(order.status)) return res.status(409).json({ error: "Not pending" });
-  /* Same double-spend guard as the Process button: an order that already carries
-     a supplier reference, or already has a recorded send attempt, is never sent
-     again from here. */
+  /* "pending" = MoMo/cash order awaiting the owner's confirmation.
+     "pending_payment" = a card payment that never confirmed (Paystack disabled or
+     abandoned), which the owner must still be able to approve once the customer
+     pays another way, or the order can never be fulfilled at all. */
   if (order.providerRef || Number(order.sendAttempts) > 0) {
     return res.status(409).json({ error: "This order has already been sent to the supplier and will not be sent again." });
   }
-  order.status = "paid";
-  order.awaitingApproval = false;
-  // Routed through the shared sender so a failure alerts the owner and records
-  // that the supplier never got it. This route had its own inline try/catch that
-  // set "failed" silently, which is how a paid order could vanish from view with
-  // nobody told.
-  await sendOrderToSupplier(orders, order);
-  creditReferralOnFirstPurchase(order.userId);
-  saveOrders(orders);
-  res.json({ ok: true, order: publicOrder(order), providerError: order.error || null });
+  /* Every supplier purchase, by any route, goes through the one claimed gate. It
+     writes the claim to disk BEFORE contacting iDATA and re-checks every guard
+     against a fresh read, which is what stops a double press or a crash from
+     buying the same bundle twice for one payment. */
+  const claim = await claimOrderForSend(order.id);
+  if (!claim.ok) return res.status(claim.code).json({ error: claim.error });
+  creditReferralOnFirstPurchase(claim.order.userId);
+  res.json({ ok: true, order: publicOrder(claim.order), providerError: claim.order.error || null });
 });
 app.post("/api/admin/orders/:id/cancel", requireAdmin, (req, res) => {
   const orders = loadOrders();
@@ -3225,6 +3342,29 @@ app.post("/api/admin/orders/:id/refund", requireAdmin, rateLimit(LIMIT_WINDOW, 2
   if (!order) return res.status(404).json({ error: "Order not found" });
   if (!paystack.initialized()) return res.status(503).json({ error: "Refunds need the Paystack key, which is not set on this server." });
   if (order.status === "delivered") return res.status(409).json({ error: "This order was delivered, so there is nothing to refund. Close it instead." });
+  /* Independent review (2026-09-29) found this route only refused `delivered`, so
+     a `processing` order that ALREADY carries a supplier reference - iDATA has
+     accepted it and the data may be minutes away - was refunded. The customer is
+     paid back AND receives the bundle.
+
+     refundStateOf() already reported owed:false for that shape, so the admin did
+     not even offer the button, but the rule was never enforced on the route that
+     moves money. A read-only check is not a control.
+
+     The owner is allowed to override this deliberately, because the legitimate
+     case is real: iDATA accepted an order and then never delivered it. That
+     cannot be decided from this screen, so it requires an explicit confirmation
+     and is written to the activity log. */
+  const inFlight = ["paid", "processing"].includes(order.status) && Boolean(order.providerRef);
+  if (inFlight && req.body && req.body.confirmInFlight !== true) {
+    return res.status(409).json({
+      error: "The supplier already has this order, so refunding now could pay you twice. Check with iDATA first; if they never delivered it, press again to confirm the refund.",
+      inFlight: true,
+    });
+  }
+  if (inFlight) {
+    activity("refund", `Owner confirmed a refund for order ${order.id} DESPITE the supplier holding it (${order.providerRef}). GHS ${Number(order.sell).toFixed(2)} will be returned. This is only correct if iDATA never delivered the bundle.`);
+  }
   if (order.refundStatus === "refunded") return res.status(409).json({ error: "This order has already been refunded." });
   if (order.refundStatus === "pending") return res.status(409).json({ error: "A refund for this order is already with Paystack. Do not refund it again." });
   if (REFUND_LOCK.has(order.id)) return res.status(409).json({ error: "That refund is already being processed." });
@@ -3381,25 +3521,14 @@ app.post("/api/admin/orders/:id/status", requireAdmin, rateLimit(LIMIT_WINDOW, 4
        the owner must have the button: that is the case that happened silently and
        had to be fixed by hand. */
     if (next === "processing") {
-      /* Never buy the same order twice. A supplier reference means iDATA already
-         has it. A send attempt already on record means this order was already
-         tried, even if the supplier never returned a reference, which is exactly
-         the case that let a second press of this button spend the owner's wallet
-         again. The ONLY order that may be sent a second time is one the supplier
-         actively rejected (status failed), because a rejection means iDATA never
-         created the order. Anything else is refused, so a double press, a stale
-         tab or a stale button cannot spend money twice. */
-      if (order.providerRef) {
-        return res.status(409).json({ error: "This order was already sent to the supplier, so it cannot be sent again. Check its status instead." });
-      }
-      if (Number(order.sendAttempts) > 0 && order.status !== "failed") {
-        return res.status(409).json({ error: `This order has already been sent to the supplier (${order.sendAttempts} attempt${Number(order.sendAttempts) === 1 ? "" : "s"}). It will not be sent again. If the supplier rejected it, check with iDATA first.` });
-      }
-      order.status = "paid";
-      order.awaitingApproval = false;
-      const ok = await sendOrderToSupplier(orders, order);
-      saveOrders(orders);
-      return res.json({ order: publicOrder(order), providerError: order.error || null, sent: ok });
+      /* Never buy the same order twice. All of that reasoning now lives in one
+         place - claimOrderForSend() - so the Process button, the Mark-paid button
+         and the automatic path cannot drift apart again. It takes the in-process
+         lock, re-reads the order from disk, re-checks every guard, and writes the
+         durable claim BEFORE the supplier is contacted. */
+      const claim = await claimOrderForSend(order.id);
+      if (!claim.ok) return res.status(claim.code).json({ error: claim.error });
+      return res.json({ order: publicOrder(claim.order), providerError: claim.order.error || null, sent: claim.sent });
     }
     order.status = next;
     saveOrders(orders);
@@ -3485,7 +3614,18 @@ if (!fs.existsSync(DATA_FILE)) saveOrders([]);
 ensureTrackCodes();
 collapseDuplicateAlerts();
 app.listen(PORT, "127.0.0.1", () => {
-  console.log(`idatastore http://127.0.0.1:${PORT}  mock=${cfg("IDATAGH_USE_MOCK", "1") === "1" ? "ON" : "OFF"} admin=${adminConfigured() ? "configured" : "NOT CONFIGURED"}`);
+  console.log(`idatastore http://127.0.0.1:${PORT}  mock=${mockEnabled() ? "ON" : "OFF"} admin=${adminConfigured() ? "configured" : "NOT CONFIGURED"}`);
+
+  /* A missing webhook secret used to be silent and fatal. The signature check now
+     fails closed, which is correct, but that means delivery updates are being
+     REJECTED and nobody would know. Say so loudly, once, at boot, so the owner
+     sees it in the admin alerts rather than discovering it as orders that never
+     reach "Delivered". */
+  if (!mockEnabled() && !idatagh.webhooksConfigured()) {
+    const msg = "Supplier webhook signing secret (IDATAGH_WEBHOOK_SECRET) is not set, so delivery updates are being REJECTED for safety. Orders will still be sent, but they will not be confirmed as delivered automatically. Get the secret from the supplier dashboard and paste it into the admin Payment keys screen.";
+    console.warn(`[SECURITY] ${msg}`);
+    alertAdmin("security", msg, "webhook-secret-missing");
+  }
   // warm product cache in background (Medium 13)
   idatagh.listProducts().catch(()=>{}).then(()=>console.log("product cache warmed"));
 });

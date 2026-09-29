@@ -1,4 +1,20 @@
-const SECRET = process.env.PAYSTACK_SECRET_KEY;
+/* The secret is read AT CALL TIME, not captured at require time.
+
+   Until 2026-09-29 this was `const SECRET = process.env.PAYSTACK_SECRET_KEY` at
+   module load. The admin dashboard rotates the key by setting process.env, but
+   the module constant never refreshed, so after a rotation EVERY Paystack call
+   - initialize, verify, refund, refund probe - kept using the OLD key. Rotating a
+   leaked key did not revoke it, which is the opposite of what the button says.
+
+   It was worse than that: the rotation route validated the new key through this
+   same stale module, so it authenticated with the OLD key and a typo'd or dead
+   new key was accepted and saved as valid. Meanwhile verifyPaystackSignature()
+   read cfg() at call time and therefore used the NEW key, so webhook checks and
+   API calls disagreed about which key was in force.
+
+   The supplier adapter did not have this bug because it reads cfg() inside each
+   function. Now this one does too. */
+const currentSecret = () => String(process.env.PAYSTACK_SECRET_KEY || "").trim();
 
 // Base URL is overridable only so the reconcilers can be tested against a stub
 // instead of the live API. It is never set in production, so the live site always
@@ -7,6 +23,7 @@ const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const BASE = process.env.PAYSTACK_API_BASE || "https://api.paystack.co";
 
 async function paystack(path, opts = {}) {
+  const SECRET = currentSecret();
   if (!SECRET) throw new Error("Paystack not configured");
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
@@ -22,7 +39,7 @@ async function paystack(path, opts = {}) {
 }
 
 function initialized() {
-  return Boolean(SECRET);
+  return Boolean(currentSecret());
 }
 
 // Returns an initialize response: { authorization_url, reference }
