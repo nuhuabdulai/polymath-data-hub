@@ -9,16 +9,30 @@ const path = require("path");
 const crypto = require("crypto");
 const idatagh = require("./lib/idatagh");
 const paystack = require("./lib/paystack");
+const { cfg, dataPath, publicPath, PUBLIC_DIR: PUBLIC_DIR_CFG } = require("./lib/config");
+const store = require("./lib/store");
+const alerts = require("./lib/alerts");
+const pricing = require("./lib/pricing");
+const ordersLib = require("./lib/orders");
+const {
+  loadJson, saveJson, loadOrders, saveOrders, loadUsers, saveUsers, loadTopups, saveTopups,
+  loadActivity, loadBlocked, saveBlocked, blockKey, isBlocked,
+  maintenanceState, saveMaintenance, maintenanceAllows, autoApproveState, saveAutoApprove,
+} = store;
+const { activity, alertAdmin, loadAlerts, collapseDuplicateAlerts, warnIfBelowCost } = alerts;
+const { NETWORKS, round2, clamp, PRICING_DEFAULTS, loadPricing, savePricing, promoLive, priceFor, bothPrices, savePercent } = pricing;
+const {
+  ensureTrackCodes, SAME_NUMBER_WINDOW_MS, OPEN_STATUSES, recentOrderForNumber, validatedDupes,
+  expireUnpaid, expireAbandonedTopups, watchStuckOrders, startOrderJobs,
+  mintTrackCode, newOrder, applyProviderResult, PROGRESS_STEPS, orderProgress,
+  publicOrder, trackingOrder, TERMS_VERSION, requireTermsAgreed,
+} = ordersLib;
 
 const app = express();
 app.set("trust proxy", "loopback");
 app.disable("x-powered-by");
 app.use(express.json({ limit: "50kb", verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-const cfg = (k, f = "") => {
-  const v = process.env[k];
-  return v === undefined || v === "" ? f : v;
-};
 const PORT = Number(cfg("PORT", "4000"));
 const DEFAULT_MARKUP = Number(cfg("MARKUP_PERCENT", "15"));
 const DEFAULT_GUEST_MARKUP = Number(cfg("GUEST_MARKUP_PERCENT", "55"));
@@ -27,36 +41,11 @@ let ADMIN_USER = cfg("ADMIN_USER");
 let ADMIN_PASS = cfg("ADMIN_PASS");
 const PUBLIC_BASE = cfg("PUBLIC_BASE_URL", "");
 const SITE_NAME = cfg("SITE_NAME", "POLYMATH DATA HUB");
-const DATA_FILE = path.join(__dirname, "..", "data", "orders.json");
-const PRICING_FILE = path.join(__dirname, "..", "data", "pricing.json");
-const MAINTENANCE_FILE = path.join(__dirname, "..", "data", "maintenance.json");
-const MAINTENANCE_HTML = path.join(__dirname, "..", "public", "maintenance.html");
+const DATA_FILE = dataPath("orders.json");
+const PRICING_FILE = dataPath("pricing.json");
+const MAINTENANCE_FILE = dataPath("maintenance.json");
+const MAINTENANCE_HTML = publicPath("maintenance.html");
 
-function maintenanceState() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(MAINTENANCE_FILE, "utf8") || "{}");
-    if (raw && raw.on !== undefined && typeof raw.on !== "boolean") return { on: true, updatedAt: null, updatedBy: null, error: "maintenance state is invalid" };
-    return { on: raw && raw.on === true, updatedAt: raw && (raw.updatedAt || null), updatedBy: raw && (raw.updatedBy || null) };
-  } catch (e) {
-    if (e && e.code === "ENOENT") return { on: false, updatedAt: null, updatedBy: null };
-    return { on: true, updatedAt: null, updatedBy: null, error: "maintenance state could not be read" };
-  }
-}
-
-function saveMaintenance(state) {
-  fs.mkdirSync(path.dirname(MAINTENANCE_FILE), { recursive: true });
-  const tmp = `${MAINTENANCE_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, MAINTENANCE_FILE);
-  return state;
-}
-
-function maintenanceAllows(req) {
-  const p = req.path;
-  if (p === "/admin" || p === "/admin.html" || p === "/api/admin" || p.startsWith("/api/admin/")) return true;
-  if (["/api/health", "/api/network-status", "/api/paystack/webhook", "/api/idatagh/webhook", "/api/order/status", "/sw.js", "/manifest.json", "/offline.html"].includes(p)) return true;
-  return /^\/(css|js|img)\//.test(p);
-}
 
 /* ---------- automatic supplier approval: the owner's switch ----------
    Automatic approval means a card payment is released to the supplier without the
@@ -74,286 +63,30 @@ function maintenanceAllows(req) {
    Toggling it ON does not retroactively send anything that is already waiting. Each
    parked order still needs its own Process press, so turning the switch on can
    never cause a sudden burst of supplier spending. */
-const AUTOAPPROVE_FILE = path.join(__dirname, "..", "data", "autoapprove.json");
+const AUTOAPPROVE_FILE = dataPath("autoapprove.json");
 
-function autoApproveState() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(AUTOAPPROVE_FILE, "utf8") || "{}");
-    if (raw && raw.on !== undefined && typeof raw.on !== "boolean") return { on: false, updatedAt: null, updatedBy: null, error: "auto-approve state is invalid" };
-    return { on: raw && raw.on === true, updatedAt: (raw && raw.updatedAt) || null, updatedBy: (raw && raw.updatedBy) || null };
-  } catch (e) {
-    if (e && e.code === "ENOENT") return { on: false, updatedAt: null, updatedBy: null };
-    return { on: false, updatedAt: null, updatedBy: null, error: "auto-approve state could not be read" };
-  }
-}
 
-function saveAutoApprove(state) {
-  fs.mkdirSync(path.dirname(AUTOAPPROVE_FILE), { recursive: true });
-  const tmp = `${AUTOAPPROVE_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, AUTOAPPROVE_FILE);
-  return state;
-}
+/* Pricing — the margin floor, promos and pinned prices — lives in lib/pricing.js.
+   Every price shown to a customer AND charged by the order, wallet-order and
+   bulk-order routes still comes from that one priceFor(). */
 
-/* ---------- pricing: auto from supplier cost, admin-overridable, promo-aware ----------
-   Single source of truth. Every price shown to a customer AND charged by the
-   order, wallet-order and bulk-order routes comes from priceFor(). */
-const NETWORKS = ["mtn", "telecel", "airteltigo"];
-const round2 = (n) => Math.round(Number(n) * 100) / 100;
-const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
-const PRICING_DEFAULTS = {
-  markupPercent: DEFAULT_MARKUP,
-  guestMarkupPercent: DEFAULT_GUEST_MARKUP,
-  minMarginPercent: 0,
-  promo: { active: false, percent: 0, networks: NETWORKS, label: "", endsAt: null },
-  overrides: {},
-};
+/* Blocked beneficiary numbers (isBlocked / blockKey, in lib/store.js): a blocked
+   number cannot buy a bundle in any channel. From a real incident on 2026-09-29,
+   where an automated send-retry loop let one customer farm ~180 GHS of data for a
+   single 19.30 payment. The reason is stored for the admin and never shown to the
+   customer. */
+const BLOCK_FILE = dataPath("blocked.json");
 
-function loadPricing() {
-  const raw = fs.existsSync(PRICING_FILE) ? JSON.parse(fs.readFileSync(PRICING_FILE, "utf8") || "{}") : {};
-  const p = { ...PRICING_DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
-  p.promo = { ...PRICING_DEFAULTS.promo, ...(raw.promo || {}) };
-  if (!Array.isArray(p.promo.networks) || !p.promo.networks.length) p.promo.networks = NETWORKS;
-  if (!p.overrides || typeof p.overrides !== "object") p.overrides = {};
-  return p;
-}
-function savePricing(p) {
-  fs.mkdirSync(path.dirname(PRICING_FILE), { recursive: true });
-  const tmp = `${PRICING_FILE}.tmp`;
-  p.updated = new Date().toISOString();
-  fs.writeFileSync(tmp, JSON.stringify(p, null, 2));
-  fs.renameSync(tmp, PRICING_FILE);
-  return p;
-}
-
-function promoLive(promo) {
-  if (!promo || !promo.active) return false;
-  if (promo.endsAt && Date.parse(promo.endsAt) < Date.now()) return false;
-  return true;
-}
-
-/** Resolve the price a customer pays for one plan. Never returns less than the margin floor. */
-function priceFor(plan, isMember) {
-  const cfgP = loadPricing();
-  const cost = Number(plan.cost);
-  const key = String(plan.id);
-  const ov = cfgP.overrides[key];
-  const promo = cfgP.promo;
-  const promoApplies = promoLive(promo) && promo.networks.map((n) => String(n).toLowerCase()).includes(String(plan.network || "").toLowerCase());
-  const promoPct = promoApplies ? clamp(Number(promo.percent) || 0, 0, 100) : 0;
-  const markup = clamp(Number(isMember ? cfgP.markupPercent : cfgP.guestMarkupPercent) || 0, -90, 1000);
-  const floorPct = clamp(Number(cfgP.minMarginPercent) || 0, 0, 1000);
-  const useFloor = floorPct > 0;
-  const floor = useFloor ? round2(cost * (1 + floorPct / 100)) : 0;
-
-  let base;
-  let source = "auto";
-  // A pin sets the MEMBER price (your price for signed-in customers). Guests stay
-  // on the guest markup so the walk-in funnel keeps its margin; use a promo to
-  // discount everyone at once.
-  if (isMember && ov && ov.mode === "fixed" && Number.isFinite(Number(ov.fixed)) && Number(ov.fixed) > 0) {
-    base = round2(ov.fixed);
-    source = "fixed";
-  } else {
-    base = round2(cost * (1 + markup / 100));
-  }
-  const afterPromo = round2(base * (1 - promoPct / 100));
-  const final = round2(useFloor ? Math.max(afterPromo, floor) : afterPromo);
-  return {
-    price: final,
-    cost,
-    base,
-    markupPercent: markup,
-    promoPercent: promoPct,
-    marginPercent: cost > 0 ? round2(((final - cost) / cost) * 100) : 0,
-    source,
-    floored: useFloor && afterPromo < floor,
-    promoLabel: promoApplies ? (promo.label || "") : "",
-  };
-}
-
-/** Member and guest prices for a plan, with the same promo/floor rules. */
-function bothPrices(plan) {
-  const m = priceFor(plan, true);
-  const g = priceFor(plan, false);
-  return { member: m.price, guest: g.price, memberInfo: m, guestInfo: g };
-}
-
-/** "Save ~26%" badge: how much cheaper member is than guest, at the median plan. */
-function savePercent() {
-  const p = loadPricing();
-  if (p.markupPercent >= p.guestMarkupPercent) return 0;
-  return Math.round((1 - (1 + p.markupPercent / 100) / (1 + p.guestMarkupPercent / 100)) * 100);
-}
-
-const loadOrders = () => {
-  try { return JSON.parse(fs.readFileSync(DATA_FILE, "utf8") || "[]"); }
-  catch { return []; }
-};
-const saveOrders = (orders) => {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  const tmp = `${DATA_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(orders, null, 2));
-  fs.renameSync(tmp, DATA_FILE);
-  return orders;
-};
-/* ---------- blocked beneficiary numbers ----------
-   A number the owner has blocked cannot buy a bundle, in any channel (guest, wallet,
-   or bulk). This exists because of a real incident on 2026-09-29: an automated
-   supplier-send retry loop let one customer farm ~180 GHS of data for a single
-   19.30 payment. Blocking is the owner's decision and is reversible. The reason is
-   stored so the admin can see why, but it is never shown to the customer (they only
-   see a neutral "this number cannot buy data, contact us" message). */
-const BLOCK_FILE = path.join(__dirname, "..", "data", "blocked.json");
-const loadBlocked = () => {
-  try { return JSON.parse(fs.readFileSync(BLOCK_FILE, "utf8") || "[]"); }
-  catch { return []; }
-};
-const saveBlocked = (list) => {
-  fs.mkdirSync(path.dirname(BLOCK_FILE), { recursive: true });
-  const tmp = `${BLOCK_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
-  fs.renameSync(tmp, BLOCK_FILE);
-  return list;
-};
-const blockKey = (p) => String(p || "").replace(/\D/g, "").replace(/^233/, "0");
-function isBlocked(phone) {
-  const key = blockKey(phone);
-  if (!key) return false;
-  return loadBlocked().some((b) => blockKey(b.phone) === key);
-}
-
-function ensureTrackCodes() {
-  const orders = loadOrders();
-  const used = new Set();
-  let changed = false;
-  for (const order of orders) {
-    let code = String(order.trackCode || "").toUpperCase();
-    while (!/^PD-[A-F0-9]{10}$/.test(code) || used.has(code)) code = mintTrackCode();
-    if (order.trackCode !== code) { order.trackCode = code; changed = true; }
-    used.add(code);
-  }
-  if (changed) saveOrders(orders);
-}
 /* Our supplier will not honour two orders for the same number sent at the same
    time: one is rejected and there is no refund. This finds an existing order for
    that number which is still open, so the storefront can refuse the second one
    instead of the owner quietly losing it. */
-const SAME_NUMBER_WINDOW_MS = 30 * 60 * 1000;
-const OPEN_STATUSES = ["pending", "pending_payment", "paid", "processing"];
-function recentOrderForNumber(digits, windowMs) {
-  const now = Date.now();
-  return loadOrders()
-    .filter((o) => o.phone === digits && OPEN_STATUSES.includes(o.status))
-    .filter((o) => now - new Date(o.created).getTime() < (windowMs || SAME_NUMBER_WINDOW_MS))
-    .sort((a, b) => new Date(b.created) - new Date(a.created))[0] || null;
-}
 
-function validatedDupes(rows) {
-  const seen = new Set();
-  const dupes = new Set();
-  for (const r of rows) {
-    const phone = String(r.phone || "").replace(/\D/g, "").replace(/^233/, "0");
-    if (!phone) continue;
-    if (seen.has(phone)) dupes.add(phone);
-    seen.add(phone);
-  }
-  return [...dupes].slice(0, 6);
-}
 
-function expireUnpaid() {
-  const orders = loadOrders();
-  let changed = false;
-  const cutoff = Date.now() - 24*60*60*1000;
-  for (const o of orders) {
-    const old = new Date(o.created).getTime() < cutoff;
-    // A MoMo/cash order the customer never paid for, and a card payment they
-    // started and abandoned. Neither has taken money or sent data, so clearing
-    // them stops them sitting in "Pending attention" forever.
-    if (o.status === "pending" && o.source === "manual" && old) {
-      o.status = "cancelled";
-      o.cancelReason = "auto-cancelled after 24h unpaid";
-      changed = true;
-    } else if (o.status === "pending_payment" && old) {
-      o.status = "cancelled";
-      o.cancelReason = "auto-cancelled after 24h, card payment never completed";
-      changed = true;
-    }
-  }
-  if (changed) saveOrders(orders);
-}
-
-/* ---------- abandoned card top-ups ----------
-   A customer who starts a card top-up and walks away left the record at
-   "awaiting_payment" forever, where it still counted towards their cap of 3
-   waiting payments. So a customer could lock THEMSELVES out of topping up by
-   abandoning attempts, and the owner had no way to tell those rows from a genuine
-   pending payment. Clearing them after 24h releases the cap.
-
-   This is its own function, scheduled below, because loadTopups is a const defined
-   further down the file: calling it from expireUnpaid at boot threw a
-   "Cannot access before initialization" error and stopped the server starting. */
-function expireAbandonedTopups() {
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  const tops = loadTopups();
-  let changed = false;
-  for (const t of tops) {
-    if (t.status !== "awaiting_payment" || t.credited) continue;
-    if (new Date(t.created).getTime() >= cutoff) continue;
-    t.status = "cancelled";
-    t.error = "expired after 24h, card payment never completed";
-    t.handledAt = new Date().toISOString();
-    changed = true;
-  }
-  if (changed) saveTopups(tops);
-}
-setInterval(expireUnpaid, 60*60*1000).unref();
-expireUnpaid();
-
-/* Our supplier only investigates a delivery problem if it is reported within 24
-   hours, and will not look at it after that. With MTN queuing for hours that is a
-   deadline the owner can easily miss, so an order that has been sitting in
-   processing is raised once with its age and the time left to report it. */
-const STUCK_AFTER_MS = 3 * 60 * 60 * 1000;     // quiet until it is worth a look
-const REPORT_WITHIN_MS = 24 * 60 * 60 * 1000;  // the supplier's hard limit
-function watchStuckOrders() {
-    const now = Date.now();
-    const orders = loadOrders();
-    for (const o of orders) {
-      // A paid order with no supplier reference has NEVER reached the supplier,
-      // whatever its status says. The customer has paid and has nothing. This is
-      // the exact state that happened silently on 2026-09-28 and cost a real
-      // sale, so it is checked on every pass and cannot be left to a single code
-      // path being careful. Anything waiting more than 4 minutes for a first send
-      // attempt is treated as a send that never happened.
-      if (["paid", "processing", "pending_payment"].includes(o.status) && !o.providerRef) {
-        const since = new Date(o.sendFailedAt || o.verifiedAt || o.paidAt || o.created).getTime();
-        const waited = now - (Number.isFinite(since) ? since : 0);
-        if (!Number.isFinite(waited) || waited < 4 * 60 * 1000) continue;
-        const mins = (waited / 60000).toFixed(0);
-        /* A claim with no reference means a send was STARTED and never came back. It
-           cannot be repeated automatically, so the wording has to tell the owner what
-           to do about it rather than only that something is wrong. */
-        const claimed = o.sendClaimedAt || o.autoSendTriedAt;
-        alertAdmin("supplier",
-          claimed
-            ? `Order ${o.id} (${o.planName}, GHS ${Number(o.sell).toFixed(2)}, ${o.phone}) was claimed for sending ${mins} minutes ago and the supplier never returned a reference. The customer has paid and may have no data. Check order ${o.reference} with iDATA first: if they never got it, release the claim ("Allow one more try") and then Send to supplier, or refund the customer. It will NOT be retried on its own.`
-            : `Order ${o.id} (${o.planName}, GHS ${Number(o.sell).toFixed(2)}, ${o.phone}) has been paid for ${mins} minutes and was NEVER sent to the supplier (no supplier reference). The customer has paid and has no data. Use Send to supplier, or refund them. Reference: ${o.reference}.`,
-          claimed ? `claim-unresolved:${o.id}` : `never-sent:${o.id}`);
-        continue;
-      }
-      if (o.status !== "processing") continue;
-      // Measured from when the customer placed it, which is the supplier's own clock.
-      const age = now - new Date(o.created).getTime();
-      if (!Number.isFinite(age) || age < STUCK_AFTER_MS) continue;
-      const hours = (age / 3600000).toFixed(1);
-      const left = Math.max(0, REPORT_WITHIN_MS - age) / 3600000;
-      alertAdmin("supplier", `Order ${o.id} (${o.planName}, GHS ${o.sell}, ${o.phone}) has been processing for ${hours} hours. Report it to the supplier within ${left.toFixed(1)} hours, after which they will not check it.`, `stuck-order:${o.id}`);
-    }
-  }
-setInterval(watchStuckOrders, 30 * 60 * 1000).unref();
-setTimeout(watchStuckOrders, 60 * 1000).unref();
+/* The order lifecycle jobs — expireUnpaid, expireAbandonedTopups and the
+   stuck-order watcher — live in lib/orders.js and are started there by
+   startOrderJobs(), which the bottom of this file calls at boot. */
 
 /* ---------- card payments: webhook plus a safety net ----------
    Paystack's webhook is the normal path, but it is a setting in someone else's
@@ -367,12 +100,6 @@ setTimeout(watchStuckOrders, 60 * 1000).unref();
 /* The terms the customer must accept before paying. Bumping this means an old
    acceptance can still be shown to have been made against older wording, and the
    admin can tell which version each order agreed to. */
-const TERMS_VERSION = "2026-09-26";
-function requireTermsAgreed(body) {
-  // Deliberately strict: only a real boolean true counts, so a truthy string or
-  // a 1 cannot be used to slip past the gate.
-  return !!(body && body.terms === true);
-}
 
 const RECONCILE_AFTER_MS = 90 * 1000;   // give the webhook first chance
 async function reconcileCardPayments() {
@@ -518,78 +245,6 @@ async function reconcileCardTopups() {
 setInterval(reconcileCardTopups, 60 * 1000).unref();
 setTimeout(reconcileCardTopups, 25 * 1000).unref();
 
-function mintTrackCode() {
-  return `PD-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
-}
-
-const newOrder = () => ({
-  id: `YB${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-  trackCode: mintTrackCode(),
-  created: new Date().toISOString(),
-  status: "pending", // pending | pending_payment | paid | processing | delivered | failed | refunded
-  providerRef: null,
-  paystackRef: null,
-  userId: null,   // set when bought from a registered account wallet
-  source: "manual", // manual (guest) | wallet | paystack
-});
-
-function applyProviderResult(order, result) {
-  const state = result && result.deliveryStatus;
-  const message = String((result && result.message) || "Provider accepted the order and is waiting for iDATA to start processing.").slice(0, 300);
-  order.providerRef = (result && (result.providerRef || result.reference)) || order.providerRef || null;
-  order.providerStatus = (result && result.providerStatus) || null;
-  order.providerMessage = message;
-  if (state === "delivered") {
-    order.status = "delivered";
-    order.deliveredAt = new Date().toISOString();
-    order.error = null;
-  } else if (state === "failed") {
-    order.status = "failed";
-    order.error = message;
-  } else {
-    order.status = "processing";
-    order.error = null;
-    delete order.deliveredAt;
-  }
-  return order;
-}
-
-const PROGRESS_STEPS = [
-  { key: "received", label: "Order received" },
-  { key: "payment", label: "Payment confirmed" },
-  { key: "approved", label: "Order approved" },
-  { key: "processing", label: "Network processing" },
-  { key: "delivered", label: "Delivered" },
-];
-
-function orderProgress(order) {
-  const status = String(order.status || "pending");
-  const providerText = `${order.providerStatus || ""} ${order.providerMessage || ""}`.toLowerCase();
-  let current = "received";
-  let label = "Order received";
-  if (status === "pending") { current = "received"; label = "Order received, waiting for payment"; }
-  else if (status === "pending_payment") { current = "payment"; label = "Payment started, waiting for confirmation"; }
-  else if (status === "paid") { current = "payment"; label = "Payment confirmed"; }
-  else if (status === "processing") {
-    if (/approved|accepted|queued|waiting|pending/.test(providerText)) {
-      current = "approved";
-      label = "Order approved, waiting for data delivery to begin";
-    } else {
-      current = "processing";
-      label = "Your data is being processed";
-    }
-  } else if (status === "delivered") { current = "delivered"; label = "Delivered successfully"; }
-  else if (status === "failed") { current = "failed"; label = "Delivery needs attention"; }
-  else if (status === "refunded") { current = "refunded"; label = "Refunded"; }
-  else if (status === "cancelled") { current = "cancelled"; label = "Order cancelled"; }
-  const currentIndex = PROGRESS_STEPS.findIndex((step) => step.key === current);
-  const steps = PROGRESS_STEPS.map((step, index) => ({
-    ...step,
-    state: currentIndex >= 0 ? (index < currentIndex ? "complete" : index === currentIndex ? "current" : "upcoming") : "upcoming",
-  }));
-  if (["failed", "refunded", "cancelled"].includes(current)) steps.push({ key: current, label, state: "terminal" });
-  return { current, label, steps };
-}
 
 /* ---------- HTTPS redirect + HSTS (Critical 3) ---------- */
 app.use((req, res, next) => {
@@ -1069,120 +724,30 @@ const MSG_CHANNEL_LABEL = {
 };
 
 /* ---------- persistent stores: users, top-ups, activity ---------- */
-const USERS_FILE = path.join(__dirname, "..", "data", "users.json");
-const TOPUPS_FILE = path.join(__dirname, "..", "data", "topups.json");
-const ACTIVITY_FILE = path.join(__dirname, "..", "data", "activity.json");
-const STATUS_FILE = path.join(__dirname, "..", "data", "network_status.json");
-const SAVED_NUMS_FILE = path.join(__dirname, "..", "data", "saved_numbers.json");
-const REFERRALS_FILE = path.join(__dirname, "..", "data", "referrals.json");
-const NOTICE_FILE = path.join(__dirname, "..", "data", "notice.json");
-const ACTIVITY_MAX = 2000;
+const USERS_FILE = dataPath("users.json");
+const TOPUPS_FILE = dataPath("topups.json");
+const ACTIVITY_FILE = dataPath("activity.json");
+const STATUS_FILE = dataPath("network_status.json");
+const SAVED_NUMS_FILE = dataPath("saved_numbers.json");
+const REFERRALS_FILE = dataPath("referrals.json");
+const NOTICE_FILE = dataPath("notice.json");
 
-const loadJson = (f, fallback) => {
-  try { return JSON.parse(fs.readFileSync(f, "utf8") || JSON.stringify(fallback)); }
-  catch { return fallback; }
-};
-const saveJson = (f, arr) => {
-  fs.mkdirSync(path.dirname(f), { recursive: true });
-  const tmp = `${f}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(arr, null, 2));
-  fs.renameSync(tmp, f);
-  return arr;
-};
-const loadUsers = () => loadJson(USERS_FILE, []);
-const saveUsers = (u) => saveJson(USERS_FILE, u);
-const loadTopups = () => loadJson(TOPUPS_FILE, []);
-const saveTopups = (t) => saveJson(TOPUPS_FILE, t);
 
 /* Scheduled here, not with expireUnpaid, so the const above is initialised first. */
-setInterval(expireAbandonedTopups, 60 * 60 * 1000).unref();
-setTimeout(expireAbandonedTopups, 5 * 1000).unref();
-const loadActivity = () => loadJson(ACTIVITY_FILE, []);
-function activity(type, msg) {
-  const list = loadActivity();
-  list.unshift({ t: new Date().toISOString(), type, msg: String(msg).slice(0, 200) });
-  saveJson(ACTIVITY_FILE, list.slice(0, ACTIVITY_MAX));
-}
 
 /* Owner alerts: things that need a human, surfaced on the admin dashboard.
    Kept separate from activity so it cannot be buried by routine events. */
-const ALERTS_FILE = path.join(__dirname, "..", "data", "alerts.json");
-const ALERT_REPEAT_WINDOW_MS = 12 * 60 * 60 * 1000;
-function alertAdmin(type, msg, dedupeKey) {
-  try {
-    const text = String(msg).slice(0, 240);
-    const now = Date.now();
-    const list = loadJson(ALERTS_FILE, []);
-    // The supplier watch is debounced in memory, but a restart resets that, so the
-    // same warning used to be re-raised every time the service started. Suppress a
-    // repeat of the same condition within the window, whatever caused it. Dedupe
-    // is on the condition key, not the wording, so a balance that jitters by a few
-    // pesewas does not produce a new warning either.
-    const match = list.find((a) => {
-      if (now - Date.parse(a.t) >= ALERT_REPEAT_WINDOW_MS) return false;
-      // Match on the condition key, but fall back to the wording so rows written
-      // before dedupeKey existed still suppress a repeat.
-      if (dedupeKey && a.dedupeKey === dedupeKey) return true;
-      return a.msg === text && a.type === type;
-    });
-    if (match) {
-      match.count = (Number(match.count) || 1) + 1;
-      match.lastAt = new Date().toISOString();
-      saveJson(ALERTS_FILE, list.slice(0, 100));
-      console.log(`[ALERT ${type}] repeated ${match.count}x (suppressed): ${text.slice(0, 160)}`);
-      return;
-    }
-    list.unshift({ t: new Date().toISOString(), type, msg: text, seen: false, count: 1, dedupeKey: dedupeKey || null });
-    saveJson(ALERTS_FILE, list.slice(0, 100));
-  } catch (_) {}
-  console.log(`[ALERT ${type}] ${String(msg).slice(0, 200)}`);
-}
-const loadAlerts = () => loadJson(ALERTS_FILE, []);
+const ALERTS_FILE = dataPath("alerts.json");
 
 /* A sale at or below supplier cost is a slow hole in the business: it arrives one
    order at a time, and nothing about a normal-looking order says so. minMarginPercent
    defaults to 0 (no floor), which is the owner's decision, so this does NOT change a
    single price — it just refuses to let a loss-making sale pass unmentioned. Raising
    the floor is then a decision the owner makes with evidence in front of them. */
-function warnIfBelowCost(plan, price, label) {
-  const cost = Number(plan && plan.cost) || 0;
-  const sell = Number(price) || 0;
-  if (!(cost > 0)) return;
-  if (sell > cost) return;
-  const loss = cost - sell;
-  alertAdmin("security",
-    `${label} sold ${plan.name} for GHS ${sell.toFixed(2)} but the supplier charges GHS ${cost.toFixed(2)} — a loss of GHS ${loss.toFixed(2)} on this order. Check the Pricing tab: the margin floor is off (minMarginPercent 0), so a supplier price rise silently makes every sale like this one lose money.`,
-    `below-cost:${plan.id}`);
-  activity("order", `WARNING: ${label} for ${plan.name} was sold at or below supplier cost (price GHS ${sell.toFixed(2)}, cost GHS ${cost.toFixed(2)}).`);
-}
 
 /* Old builds re-raised the same supplier warning on every restart, so the list
    filled with identical rows. Collapse them into one row that keeps the count.
    Idempotent, so it is safe to run on every boot. */
-function collapseDuplicateAlerts() {
-  try {
-    const list = loadJson(ALERTS_FILE, []);
-    if (!Array.isArray(list) || !list.length) return;
-    const byMsg = new Map();
-    const kept = [];
-    for (const a of list) {
-      const k = `${a.type}|${a.msg}`;
-      const prev = byMsg.get(k);
-      if (prev) {
-        prev.count = (Number(prev.count) || 1) + (Number(a.count) || 1);
-        if (String(a.t) > prev.t) prev.t = a.t;
-        continue;
-      }
-      const row = { ...a, count: Number(a.count) || 1 };
-      byMsg.set(k, row);
-      kept.push(row);
-    }
-    if (kept.length !== list.length) {
-      saveJson(ALERTS_FILE, kept);
-      console.log(`[alerts] collapsed ${list.length} alerts into ${kept.length}`);
-    }
-  } catch (e) { console.log("[alerts] collapse skipped:", e.message); }
-}
 
 app.get("/api/admin/maintenance", requireAdmin, (req, res) => {
   res.json(maintenanceState());
@@ -1279,7 +844,7 @@ function userPublic(u) {
    out", with the server log showing a clean success. They are now written to disk
    so a restart, a crash or a deploy cannot end a session. The token is a random
    48-char secret, so the file is a bearer-token store and is kept 600. */
-const USESSIONS_FILE = path.join(__dirname, "..", "data", "user-sessions.json");
+const USESSIONS_FILE = dataPath("user-sessions.json");
 const uSessions = new Map(Object.entries(loadJson(USESSIONS_FILE, {})));
 const USESSION_TTL = 30 * 24 * 60 * 60 * 1000;
 const UCOOKIE = "idata_user";
@@ -1395,7 +960,7 @@ function oauthFail(step, detail, heading, pageDetail) {
    from the homepage so there is one number to keep correct, and fall back to 0. */
 function styleVersion() {
   try {
-    const html = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+    const html = fs.readFileSync(publicPath("index.html"), "utf8");
     const m = html.match(/style\.css\?v=(\d+)/);
     return m ? m[1] : "0";
   } catch { return "0"; }
@@ -1461,7 +1026,7 @@ number, and pay by card or mobile money as a guest.</p>
    Worker, so its Set-Cookie reaches the browser. The ticket is what makes this
    safe rather than a back door: it is random, lives 60 seconds, is consumed by
    the first redemption, and carries only the user id. */
-const XCHG_FILE = path.join(__dirname, "..", "data", "auth-exchange.json");
+const XCHG_FILE = dataPath("auth-exchange.json");
 const xchgTickets = new Map(Object.entries(loadJson(XCHG_FILE, {})));
 const XCHG_TTL = 60 * 1000;
 let xchgDirty = false;
@@ -1939,7 +1504,7 @@ app.post("/api/auth/verify-otp", GONE);
 /* ---------- wallet top-up via Paystack (auto-credit on verified payment) ---------- */
 /* Limits are owner-controlled from the admin (Top-ups tab) and stored in
    data/topup.json, so they can be changed at any time without a deploy. */
-const TOPUP_FILE = path.join(__dirname, "..", "data", "topup.json");
+const TOPUP_FILE = dataPath("topup.json");
 const TOPUP_MAX = 10000;
 const TOPUP_MIN = 5;
 const TOPUP_DEFAULT = { min: 50, max: 10000, chips: [50, 100, 200, 500] };
@@ -2694,11 +2259,11 @@ app.post("/api/wallet/bulk-order", requireUser, rateLimit(LIMIT_WINDOW, 5), asyn
 /* Admin shell is public; every /api/admin/* route is behind requireAdmin, so the
    login form must be reachable or the owner is locked out of their own panel. */
 app.get("/admin.html", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "admin.html"));
+  res.sendFile(publicPath("admin.html"));
 });
 
 /* ---------- public API ---------- */
-app.use(express.static(path.join(__dirname, "..", "public"), { maxAge: "1y", immutable: true, setHeaders: (res, filePath) => {
+app.use(express.static(PUBLIC_DIR_CFG, { maxAge: "1y", immutable: true, setHeaders: (res, filePath) => {
   if (/\.html$/i.test(filePath)) res.setHeader("Cache-Control", "no-cache");
   else if (/\.(js|css)$/i.test(filePath)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
 } }));
@@ -2882,27 +2447,6 @@ app.post("/api/order", rateLimit(LIMIT_WINDOW, ORDER_MAX), async (req, res) => {
   }
 });
 
-function publicOrder(o) {
-  return {
-    id: o.id, trackCode: o.trackCode || null, status: o.status, planName: o.planName, network: o.network,
-    phone: o.phone, currency: o.currency, sell: o.sell, reference: o.reference,
-    progress: orderProgress(o),
-  };
-}
-
-function trackingOrder(o) {
-  return {
-    id: o.id,
-    trackCode: o.trackCode || null,
-    status: o.status,
-    planName: o.planName,
-    network: o.network,
-    created: o.created,
-    progress: orderProgress(o),
-    sell: o.sell,
-    currency: o.currency,
-  };
-}
 
 app.post("/api/order/track", rateLimit(60 * 1000, 10), (req, res) => {
   const code = String((req.body && req.body.code) || "").trim().toUpperCase();
@@ -3183,7 +2727,7 @@ app.post("/api/paystack/webhook", async (req, res) => {
 
 /* ---------- admin API ---------- */
 app.get("/admin", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "admin.html"));
+  res.sendFile(publicPath("admin.html"));
 });
 
 // Orders only, with no supplier call. The dashboard summary also asks iDATA for
@@ -3672,23 +3216,41 @@ app.post("/api/admin/orders/:id/clear-send-claim", requireAdmin, rateLimit(LIMIT
 });
 
 app.get("/account", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "account.html"));
+  res.sendFile(publicPath("account.html"));
 });
 
 app.get("/complete", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "public", "complete.html"));
+  res.sendFile(publicPath("complete.html"));
 });
 for (const p of ["mtn", "telecel", "airteltigo"]) {
-  app.get(`/${p}`, (req, res) => res.sendFile(path.join(__dirname, "..", "public", `${p}.html`)));
+  app.get(`/${p}`, (req, res) => res.sendFile(publicPath(`${p}.html`)));
 }
 for (const p of ["terms", "refund-policy", "privacy"]) {
-  app.get(`/${p}`, (req, res) => res.sendFile(path.join(__dirname, "..", "public", `${p}.html`)));
+  app.get(`/${p}`, (req, res) => res.sendFile(publicPath(`${p}.html`)));
 }
-app.get("/product", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "product-detail.html")));
-app.get("/sitemap.xml", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "sitemap.xml")));
-app.get("/robots.txt", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "robots.txt")));
-app.get("/manifest.json", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "manifest.json")));
-app.get("/sw.js", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "sw.js")));
+app.get("/product", (req, res) => res.sendFile(publicPath("product-detail.html")));
+app.get("/sitemap.xml", (req, res) => res.sendFile(publicPath("sitemap.xml")));
+app.get("/robots.txt", (req, res) => res.sendFile(publicPath("robots.txt")));
+
+/* security.txt (RFC 9116), built from configuration.
+   The published file said mailto:you@example.com, which tells a security researcher
+   nothing and looks like a site nobody maintains. Rather than invent a contact, the
+   file is only served when SECURITY_CONTACT is set; a host with no contact answers
+   404, which is honest, and the dashboard reminds the owner it is missing. */
+app.get("/.well-known/security.txt", (req, res) => {
+  const contact = cfg("SECURITY_CONTACT");
+  if (!contact) return res.status(404).type("text").send("No security contact is configured for this site.\n");
+  const expires = cfg("SECURITY_EXPIRES", new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString());
+  const lines = [
+    `Contact: ${contact}`,
+    `Expires: ${expires}`,
+    `Preferred-Languages: ${cfg("SECURITY_LANGUAGES", "en")}`,
+    `Canonical: ${(PUBLIC_BASE || "").replace(/\/$/, "")}/.well-known/security.txt`,
+  ];
+  res.type("text/plain").send(lines.join("\n") + "\n");
+});
+app.get("/manifest.json", (req, res) => res.sendFile(publicPath("manifest.json")));
+app.get("/sw.js", (req, res) => res.sendFile(publicPath("sw.js")));
 
 /* ---------- iDATA delivery webhooks ---------- */
 // idatagh POSTs order.{status} events here (URL: /api/idatagh/webhook).
@@ -3759,6 +3321,7 @@ app.use((err, req, res, next) => {
 if (!fs.existsSync(DATA_FILE)) saveOrders([]);
 ensureTrackCodes();
 collapseDuplicateAlerts();
+startOrderJobs();
 app.listen(PORT, "127.0.0.1", () => {
   console.log(`idatastore http://127.0.0.1:${PORT}  mock=${cfg("IDATAGH_USE_MOCK", "") === "1" ? "ON" : "OFF"} admin=${adminConfigured() ? "configured" : "NOT CONFIGURED"}`);
   // warm product cache in background (Medium 13)
