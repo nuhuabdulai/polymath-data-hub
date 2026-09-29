@@ -118,6 +118,17 @@ Not hidden, because a reviewer should not have to find them:
   easiest way for a retry to pay twice, so the code refuses any amount it was not
   given. This is a deliberate trade, and a reasonable thing to argue with.
 
+## Running it
+
+`DEPLOY.md` is the operations half: systemd unit, nginx config, TLS, the deploy gate
+(`scripts/deploy.sh` — preflight, restart, health check, automatic rollback), nightly
+backups and restore drill, and a table of what to do when something is wrong. The short
+version of the one that matters:
+
+```bash
+git pull && sudo bash scripts/deploy.sh     # never `git pull && systemctl restart`
+```
+
 ## Setup
 
 ```bash

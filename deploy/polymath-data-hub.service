@@ -1,0 +1,76 @@
+# systemd unit for the storefront.
+#
+#   install:  sudo cp deploy/polymath-data-hub.service /etc/systemd/system/
+#             sudo systemctl daemon-reload && sudo systemctl enable --now polymath-data-hub
+#
+# The app binds 127.0.0.1 (see the listen() call) and trusts a proxy on loopback, so
+# nginx must sit in front of it. See deploy/nginx.conf.
+#
+# Restart policy is the second line of defence after scripts/deploy.sh: if the process
+# ever dies — an unhandled error, the OOM killer — systemd brings it back without a
+# human. RestartSec stops a broken build from spinning in a hot loop.
+[Unit]
+Description=POLYMATH DATA HUB — data bundle storefront (Express, port 4000)
+Documentation=file:///opt/polymath-data-hub/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+# If the same unit is ever templated per environment, keep them ordered.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=polymath
+Group=polymath
+WorkingDirectory=/opt/polymath-data-hub
+# Absolute path, so it starts the same whatever systemd's cwd handling does.
+ExecStart=/usr/bin/node /opt/polymath-data-hub/server/server.js
+
+# Journald keeps the log; the app writes one line per event, including every
+# webhook arrival, which is the only way to answer "did it even call us?".
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polymath-data-hub
+
+# Restart, but not forever in a tight loop: ten failures in five minutes and it stays
+# down with a visible failed state, which is better than a silent restart storm.
+Restart=always
+RestartSec=3
+StartLimitAction=none
+
+# Secrets live in server/.env (mode 600). systemd is not given an EnvironmentFile
+# because the app loads it itself, from its own directory.
+Environment=NODE_ENV=production
+# Uncomment to override anything without editing .env:
+#Environment=PORT=4000
+
+# --- hardening -------------------------------------------------------------------
+# The service only needs: its own tree, the data directory, and outbound HTTPS to
+# iDATA and Paystack.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# The dashboard can rotate keys and change the admin password, so it must be able to
+# write .env. Everything else in /opt is read-only to it.
+ReadWritePaths=/opt/polymath-data-hub/data /opt/polymath-data-hub/server/.env
+# Allow only outbound IPv4/IPv6 (no raw sockets, no netlink).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# A storefront holding wallets: if it ever runs away, cap it and let systemd log it.
+MemoryMax=1G
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target
