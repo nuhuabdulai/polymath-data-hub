@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Admin | POLYMATH DATA HUB</title>
+<meta name="robots" content="noindex,nofollow" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📶</text></svg>" />
+<link rel="stylesheet" href="/css/style.css?v=70" />
+</head>
+<body class="admin-body">
+  <!-- Login view -->
+  <div id="loginView" class="auth-panel" hidden>
+    <h1>POLYMATH DATA HUB</h1>
+    <p class="form-head">Admin login</p>
+    <div class="field"><label for="lUser">Username</label><input id="lUser" autocomplete="username" autocapitalize="none" maxlength="64" /></div>
+    <div class="field">
+      <label for="lPass">Password</label>
+      <input id="lPass" type="password" autocomplete="current-password" maxlength="128" />
+      <label class="wrap-check" for="lShow"><input type="checkbox" id="lShow" /><span>Show password</span></label>
+    </div>
+    <div class="pay-actions"><button type="button" class="btn btn-primary btn-block" id="lGo">Sign in</button></div>
+    <p class="auth-err" id="lErr"></p>
+  </div>
+
+  <!-- Dashboard view -->
+  <div id="dashView" hidden>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="brand" href="/"><span class="brand-mark">PD</span><span class="brand-name">POLYMATH <em>DATA HUB</em><span class="brand-page">Admin</span></span></a>
+        <nav class="admin-bar">
+          <a href="/" target="_blank" rel="noopener">Storefront ↗</a>
+          <button type="button" class="link-btn" id="pwToggle">Password</button>
+          <button type="button" class="link-btn" id="adminRefresh">Refresh</button>
+          <button type="button" class="link-btn" id="adminLogout">Logout</button>
+        </nav>
+        <button
+          type="button"
+          class="emerg"
+          id="maintenanceToggle"
+          data-on="false"
+          aria-live="polite"
+          title="Emergency switch. Customers see a maintenance page; this admin panel stays available."
+        ><span class="dot"></span><span id="emergLabel">Checking site…</span></button>
+      </div>
+      <div class="pw-panel" id="pwPanel" hidden>
+        <div class="wrap" style="padding:16px 24px">
+          <h3 style="font-size:15px;margin:0 0 10px">Change admin password</h3>
+          <div class="pw-grid">
+            <div class="field"><label for="pwCur">Current password</label><input id="pwCur" type="password" autocomplete="current-password" maxlength="128" /></div>
+            <div class="field"><label for="pwNew">New password</label><input id="pwNew" type="password" autocomplete="new-password" maxlength="128" /></div>
+            <div class="field"><label for="pwNew2">Repeat new password</label><input id="pwNew2" type="password" autocomplete="new-password" maxlength="128" /></div>
+            <div class="pw-actions"><button type="button" class="btn btn-primary" id="pwSave">Save password</button></div>
+          </div>
+          <p class="dim" id="pwMsg" style="margin-top:8px">At least 8 characters. This signs you out on any other device.</p>
+        </div>
+      </div>
+    </header>
+    <div class="admin-alerts" id="alertBar" hidden>
+      <div class="wrap alert-body">
+        <h4>⚠ Needs your attention</h4>
+        <ul id="alertList"></ul>
+        <button type="button" class="link-btn" id="alertClear">Mark as read</button>
+      </div>
+    </div>
+    <main class="wrap-wide" style="padding:28px 24px 64px">
+      <div class="grid-features" id="stats"></div>
+      <div class="admin-tabs" role="tablist">
+        <button type="button" class="admin-tab active" data-tab="orders">Orders</button>
+        <button type="button" class="admin-tab" data-tab="users">Customers</button>
+        <button type="button" class="admin-tab" data-tab="topups">Top-ups</button>
+        <button type="button" class="admin-tab" data-tab="logs">Logs</button>
+        <button type="button" class="admin-tab" data-tab="messaging">Messaging</button>
+        <button type="button" class="admin-tab" data-tab="status">Status</button>
+        <button type="button" class="admin-tab" data-tab="pricing">Pricing</button>
+        <button type="button" class="admin-tab" data-tab="sales">Sales</button>
+      </div>
+        <p class="dim" id="feed"></p>
+        <section id="ordersView">
+          <details class="admin-help" id="ordersHow">
+            <summary>How to approve an order</summary>
+            <p><b>Pending payment</b> means a customer paid by MoMo or cash and sent you proof: once you have the money press <b>Mark paid &amp; send</b> and the data goes out at once. <b>Card payment not confirmed</b> means their card never went through, so ask them to pay by MoMo and then press <b>Mark paid &amp; send (they paid another way)</b>. Card payments that work confirm themselves, so leave those alone. <b>Nobody paid?</b> Press <b>Cancel</b>; it works on both unpaid states, anything unpaid for 24 hours clears itself, and an order that is <b>In progress</b> or <b>Delivered</b> can no longer be cancelled.</p>
+          </details>
+          <details class="admin-help">
+            <summary>Matching a payment to an order</summary>
+            <p>The <b>Paystack ref</b> is the one Paystack emailed the customer and the one you search for in your Paystack dashboard. The <b>Supplier ref</b> is the supplier's own order number, only useful if you need to ask them about a specific delivery. They are different numbers for the same order, so <b>No card payment</b> means the customer paid by MoMo or cash and never used Paystack. Use the search box to find an order by either reference, the order number, the phone or the tracking code.</p>
+          </details>
+        <input id="ordFilter" type="search" placeholder="Find an order: ref, number or phone" aria-label="Find an order" class="ord-search" />
+        <div class="order-live" hidden></div>
+        <div class="ord-tools">
+          <button type="button" class="link-btn" id="ordLiveToggle" aria-pressed="true">Pause</button>
+          <button type="button" class="link-btn" id="ordCheckNow">Check now</button>
+        </div>
+        <div class="ord-triage" id="ordTriage" hidden></div>
+        <div class="ord-scroll">
+          <table class="admin-table ord-table" id="tblOrders">
+            <thead><tr>
+              <th class="ord-c-status"><button type="button" class="ord-sort" data-sort="status">Status</button></th>
+              <th class="ord-c-order"><button type="button" class="ord-sort" data-sort="order">Order</button></th>
+              <th class="ord-c-plan"><button type="button" class="ord-sort" data-sort="plan">Bundle</button></th>
+              <th class="ord-c-num"><button type="button" class="ord-sort" data-sort="num">Number</button></th>
+              <th class="ord-c-money"><button type="button" class="ord-sort" data-sort="money">Price</button></th>
+              <th class="ord-c-refs">References</th>
+              <th class="ord-c-act">Action</th>
+            </tr></thead>
+            <tbody id="tbodyOrders"></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="usersView" hidden></section>
+      <section id="topupsView" hidden></section>
+      <section id="logsView" hidden></section>
+      <section id="messagingView" hidden></section>
+      <section id="statusView" hidden></section>
+      <section id="pricingView" hidden></section>
+      <section id="salesView" hidden></section>
+    </main>
+  </div>
+
+<script src="/js/admin.js?v=50"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "POLYMATH DATA HUB",
+  "short_name": "POLYMATH",
+  "description": "Cheap MTN, Telecel and AirtelTigo data bundles — automated delivery",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f9",
+  "theme_color": "#0e7490",
+  "categories": ["shopping", "utilities"],
+  "icons": [
+    { "src": "/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Buy data", "short_name": "Buy", "url": "/#shop" },
+    { "name": "Track an order", "short_name": "Track", "url": "/#track" },
+    { "name": "My account", "short_name": "Account", "url": "/account" }
+  ]
+}

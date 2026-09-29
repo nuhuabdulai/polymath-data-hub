@@ -1,0 +1,4 @@
+Contact: mailto:you@example.com
+Expires: 2027-09-24T00:00:00.000Z
+Acknowledgments: https://example.com
+Preferred-Languages: en
