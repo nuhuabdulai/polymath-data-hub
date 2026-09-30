@@ -622,7 +622,7 @@ function successHtml(res, plan) {
 }
 const TRACK_TMPL = (extra) => `
   <h3>Track an order</h3>
-  <p class="dim">Enter the tracking code shown after your order. It looks like <b>PD-XXXXXXXXXX</b>.</p>
+  <p class="dim">Enter the tracking code from your confirmation. It looks like <b>PD-XXXXXXXXXX</b>. If you have the order ref instead (it starts <b>YB</b>), add the last 4 digits of the number the data goes to.</p>
   <div class="field"><label for="trId">Tracking code</label><input id="trId" type="text" placeholder="PD-XXXXXXXXXX" autocomplete="off" maxlength="24" value="${extra || ""}" /></div>
   <div class="field" id="trLast4Wrap" hidden><label for="trLast4">Last 4 digits of the number</label><input id="trLast4" type="tel" inputmode="numeric" placeholder="e.g. 6789" autocomplete="off" maxlength="4" /></div>
   <div class="pay-actions"><button type="button" class="btn btn-primary btn-block" id="trGo">CHECK STATUS</button></div>
