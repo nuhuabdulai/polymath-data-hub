@@ -23,8 +23,13 @@ const loadJson = (f, fallback) => {
 const saveJson = (f, arr) => {
   fs.mkdirSync(path.dirname(f), { recursive: true });
   const tmp = `${f}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(arr, null, 2));
+  // 0600 on purpose: these files hold order PII, password hashes and (in
+  // user-sessions.json) bearer tokens. A 0644 data directory is readable by
+  // every account on the VPS.
+  fs.writeFileSync(tmp, JSON.stringify(arr, null, 2), { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);   // in case the tmp file already existed with wider rights
   fs.renameSync(tmp, f);
+  try { fs.chmodSync(f, 0o600); } catch (_) {}
   return arr;
 };
 
