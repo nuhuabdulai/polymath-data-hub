@@ -34,3 +34,5 @@ jobs:
       # that never happened. This is the test that was missing both times.
       - name: An unconfigured supplier must not fake a delivery (9 checks)
         run: node test/unconfigured-supplier-safety.js
+      - name: Admin shell (tabs, keyboard navigation, data loading)
+        run: node test/admin-shell.js
