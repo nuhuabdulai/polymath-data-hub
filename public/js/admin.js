@@ -35,9 +35,10 @@ const ORDER_STATUS_LABEL = { pending: "Pending payment", pending_payment: "Await
 function orderStatusLabel(statusOrOrder) {
   const o = typeof statusOrOrder === "string" ? { status: statusOrOrder } : (statusOrOrder || {});
   const s = o.status;
-  const nothingSent = !o.providerRef && !(Number(o.sendAttempts) > 0) && !o.autoSendTriedAt;
+  const nothingSent = !o.providerRef && !(Number(o.sendAttempts) > 0) && !o.autoSendTriedAt && !o.sendClaimedAt;
   if (s === "paid" && nothingSent) return "Paid, not sent";
-  if (s === "processing" && !o.providerRef) return "Not sent";
+  if (s === "processing" && !o.providerRef) return nothingSent ? "Not sent" : "Sending, unconfirmed";
+  if (s === "paid" && !o.providerRef && !nothingSent) return "Sending, unconfirmed";
   if (s === "paid") return "Paid, sending";
   return ORDER_STATUS_LABEL[s] || String(s || "n/a");
 }
@@ -116,6 +117,8 @@ async function loadMaintenance() {
 /* Set while any two-tap button is armed. The order poll checks it so an armed
    button is not destroyed by the 8-second table refresh. */
 let ARMED_UNTIL = 0;
+let lastSearch = null;
+let ordSearchTimer = 0;
 
 function askTwice(button, message, confirmLabel) {
   if (button.dataset.armed === "true") {
@@ -730,7 +733,26 @@ async function loadOrders() {
     ["iDATA wallet", data.wallet && data.wallet.balance != null ? `${data.wallet.balance} GHS` : "n/a"],
     ["API mode", data.config.apiMock ? "MOCK" : "LIVE"],
     ["Paystack", data.config.paystackOn ? "ON" : "off"],
-  ].map(([k, v]) => `<div class="feature"><h3>${esc(k)}</h3><p style="font-size:22px;font-weight:800;color:var(--ink)">${esc(v)}</p></div>`).join("");
+    ["Supplier webhook", data.config.supplierWebhookSigned ? "signed" : "UNSIGNED"],
+  ].map(([k, v]) => {
+    const bad = v === "MOCK" || v === "UNSIGNED";
+    return `<div class="feature"${bad ? ' style="border-color:#b91c1c"' : ""}><h3>${esc(k)}</h3><p style="font-size:22px;font-weight:800;color:${bad ? "#b91c1c" : "var(--ink)"}">${esc(v)}</p></div>`;
+  }).join("");
+
+  /* Two states that must never be quiet, because both look like normal operation
+     from the outside:
+       MOCK  — orders are "delivered" by a stub. Nothing reaches a customer.
+       UNSIGNED webhook — iDATA's delivery updates are refused, so statuses only move
+       when the owner moves them.
+     Neither is fatal, and both are invisible in the order list otherwise. */
+  const warn = [];
+  if (data.config.apiMock) warn.push("This server is in MOCK mode: bundles are not really delivered and no supplier is charged. Set IDATAGH_USE_MOCK=0 with a real API key to sell.");
+  if (!data.config.supplierWebhookSigned) warn.push("IDATAGH_WEBHOOK_SECRET is not set, so delivery updates from the supplier are refused. Order statuses will not change on their own — the reconciler and manual status control still work. Set it in the Credentials tab.");
+  const warnBox = $("#cfgWarn");
+  if (warnBox) {
+    warnBox.hidden = !warn.length;
+    warnBox.innerHTML = warn.map((w) => `<p style="margin:4px 0">${esc(w)}</p>`).join("");
+  }
 
   // One place decides what the owner can do with an order, so a guest order that
   // paid by MoMo can actually be approved instead of only having "Process".
@@ -774,8 +796,13 @@ const orderRefs = (o) => {
 function orderTriage(o) {
   if (o.status === "delivered") return { rank: 2, flag: null };
   if (o.status === "cancelled" || o.status === "refunded") return { rank: 2, flag: null };
-  const nothingSent = !o.providerRef && !(Number(o.sendAttempts) > 0) && !o.autoSendTriedAt;
+  /* A send claim with no supplier reference is the one state nobody else will ever
+     report: the customer may have nothing, and only the owner can ask the supplier
+     and decide. It outranks everything except a refund already owed. */
+  const claimed = !o.providerRef && Boolean(o.sendClaimedAt || o.autoSendTriedAt);
+  const nothingSent = !o.providerRef && !(Number(o.sendAttempts) > 0) && !o.autoSendTriedAt && !o.sendClaimedAt;
   if (o.refundOwed || o.refundStatus === "failed") return { rank: 0, flag: "refund" };
+  if (claimed && ["paid", "processing", "failed"].includes(o.status)) return { rank: 0, flag: "claim" };
   if (o.status === "processing" && nothingSent) return { rank: 0, flag: "stuck" };
   if (o.status === "paid" && nothingSent) return { rank: 0, flag: "send" };
   if (o.status === "pending" || o.status === "pending_payment") return { rank: 0, flag: "send" };
@@ -785,6 +812,7 @@ function orderTriage(o) {
 
 const TRIAGE_ROW = {
   refund: { cls: "t-refund",  text: "Refund owed" },
+  claim:  { cls: "t-stuck",   text: "Send unconfirmed" },
   stuck:  { cls: "t-stuck",   text: "Paid, never sent" },
   send:   { cls: "t-send",    text: "Needs you" },
 };
@@ -810,23 +838,48 @@ function renderOrderRows() {
       ? b("refund", `Refund ${money}`, o.source === "wallet" ? "primary" : "danger")
       : "";
 
+    /* Whether an order may be sent is decided by the SERVER (sendBlockedReason), and
+       sent to the dashboard as `sendable`, so the button the owner sees is always the
+       button the server will honour. Sending it ourselves here is how a button ends up
+       offering an action that is refused — or worse, before claims existed, one that
+       quietly bought the bundle twice.
+       When it is not sendable and nothing has come back from the supplier, the owner
+       gets the explicit release button instead, which asks who at iDATA confirmed the
+       order never arrived and records the answer on the order. */
+    const claimed = !o.providerRef && !o.sendable
+      && Boolean(o.autoSendTriedAt || o.sendClaimedAt || Number(o.sendAttempts) > 0);
+    const releaseNote = o.sendClaimReleasedAt
+      ? `<div class="act-note">A previous send was released by you${o.sendClaimConfirmedBy ? ` (supplier: ${esc(o.sendClaimConfirmedBy)})` : ""}. This next send happens once, with no automatic retry.</div>`
+      : "";
+    const releaseBtn = (cls) => b("releaseclaim", "Allow one more try", cls || "danger");
+    const sendOrRelease = (cls) => (claimed ? releaseBtn(cls) : b("process", "Send to supplier", cls));
+
     switch (o.status) {
+      /* A pending order that somehow already carries a send claim offers the release
+         instead of Mark paid, so the owner is never shown a button that bounces. */
       case "pending":
-        return `<div class="act-main">${b("markpaid", "Mark paid &amp; send", "primary")}</div><div class="act-alt">${b("cancel", "Cancel", "danger")}</div>`;
+        return claimed
+          ? `<div class="act-main">${releaseBtn()}</div><div class="act-alt">${b("cancel", "Cancel", "danger")}</div>`
+          : `<div class="act-main">${b("markpaid", "Mark paid &amp; send", "primary")}</div><div class="act-alt">${b("cancel", "Cancel", "danger")}</div>`;
       case "pending_payment":
-        return `<div class="act-note">Card payment not confirmed. If they paid by MoMo:</div><div class="act-main">${b("markpaid", "Mark paid &amp; send", "primary")}</div><div class="act-alt">${b("cancel", "Cancel", "danger")}</div>`;
+        return claimed
+          ? `<div class="act-note">A send was already attempted for this order.</div><div class="act-main">${releaseBtn()}</div><div class="act-alt">${b("cancel", "Cancel", "danger")}</div>`
+          : `<div class="act-note">Card payment not confirmed. If they paid by MoMo:</div><div class="act-main">${b("markpaid", "Mark paid &amp; send", "primary")}</div><div class="act-alt">${b("cancel", "Cancel", "danger")}</div>`;
       case "paid":
-        if (Number(o.sendAttempts) > 0 || o.autoSendTriedAt) return `<span class="act-note">Sending to the supplier…</span>`;
-        return `<div class="act-main">${b("process", "Send to supplier", "primary")}</div>${refundBtn ? `<div class="act-alt">${refundBtn}</div>` : ""}`;
+        /* Only a send that is genuinely running right now says "Sending…". A claim
+           left behind by a crash says so instead, and offers the way out. */
+        if (o.sending) return `<span class="act-note">Sending to the supplier…</span>`;
+        if (claimed) return `${releaseNote}<div class="act-main">${releaseBtn()}</div><div class="act-alt">${refundBtn || b("cancel", "Cancel", "danger")}</div>`;
+        return `${releaseNote}<div class="act-main">${b("process", "Send to supplier", "primary")}</div>${refundBtn ? `<div class="act-alt">${refundBtn}</div>` : ""}`;
       case "processing":
         if (!o.providerRef) {
-          return `<div class="act-main">${b("process", "Send to supplier", "danger")}</div><div class="act-alt">${refundBtn || b("cancel", "Cancel", "danger")}</div>`;
+          return `${releaseNote}<div class="act-main">${sendOrRelease("danger")}</div><div class="act-alt">${refundBtn || b("cancel", "Cancel", "danger")}</div>`;
         }
         return `<span class="act-note">In progress at the network. Nothing to do.</span>`;
       case "failed":
-        const retry = !o.providerRef ? `<div class="act-main">${b("process", "Send to supplier", "primary")}</div>` : "";
+        const retry = !o.providerRef ? `<div class="act-main">${sendOrRelease("primary")}</div>` : "";
         const back = o.source === "wallet" && !o.refundStatus ? b("refund", `Refund ${money}`, "primary") : refundBtn;
-        return `${retry}<div class="act-alt">${back || ""}</div>`;
+        return `${releaseNote}${retry}<div class="act-alt">${back || ""}</div>`;
       default:
         return o.refundStatus === "refunded" ? `<span class="act-ok">Refunded</span>` : "";
     }
@@ -838,6 +891,14 @@ function renderOrderRows() {
 
   const shown = all.filter(matchesFilter);
   const tri = new Map(shown.map((o) => [o.id, orderTriage(o)]));
+  const searchNote = $("#ordSearchNote");
+  if (searchNote) {
+    searchNote.textContent = !ordFilter
+      ? ""
+      : lastSearch && lastSearch.term === ($("#ordFilter").value || "").trim()
+        ? `${lastSearch.matched} match${lastSearch.matched === 1 ? "" : "es"} across all orders.`
+        : "Searching all orders…";
+  }
   const key = ordSortKey;
   const cmp = {
     triage: (a, b) => (tri.get(a.id).rank - tri.get(b.id).rank) || (new Date(b.created) - new Date(a.created)),
@@ -918,14 +979,59 @@ function renderOrderRows() {
     refund: "Refund the customer? This returns real money. Press again to confirm.",
     process: "This sends the data and spends your supplier balance. Press again to send.",
   };
+
+  /* Releasing a send claim is the one action that can lead to a second purchase, so
+     it asks for the reason in writing first. Drawn in the page, because a native
+     prompt() is discarded by the same in-app browsers that discard confirm() (see
+     the note above), which would leave the owner with a button that does nothing. */
+  const beginClaimRelease = (button, orderId) => {
+    const cell = button.closest("td");
+    if (!cell) return;
+    cell.innerHTML = `
+      <div class="act-note">Release the send claim? Only after iDATA confirms order <b>${esc(orderId)}</b> never reached them. It can then be sent once — it is never retried automatically.</div>
+      <div class="act-main"><input class="rel-who" type="text" maxlength="120" placeholder="Who at iDATA confirmed?" aria-label="Who at iDATA confirmed the order never arrived" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px" /></div>
+      <div class="act-alt"><button type="button" class="buy-btn primary rel-go">Release claim</button><button type="button" class="buy-btn rel-no">Cancel</button></div>`;
+    const input = cell.querySelector(".rel-who");
+    if (input) input.focus();
+    /* Hold the polling refresh for as long as the form is open, on top of the fact
+       that a focused input already pauses it. */
+    ARMED_UNTIL = Date.now() + 120000;
+    cell.querySelector(".rel-no").addEventListener("click", () => { ARMED_UNTIL = 0; renderOrderRows(); });
+    cell.querySelector(".rel-go").addEventListener("click", async () => {
+      const who = (input.value || "").trim();
+      if (!who) { toast("Type who at iDATA confirmed the order never arrived.", true); input.focus(); return; }
+      const r = await ajax(`/api/admin/orders/${encodeURIComponent(orderId)}/clear-send-claim`, {
+        method: "POST",
+        body: JSON.stringify({ confirmedBy: who }),
+      });
+      ARMED_UNTIL = 0;
+      if (!r.ok) { toast(r.data.error || "Could not release the claim", true); return; }
+      toast("Claim released. Press Send to supplier when ready — it will be sent once.");
+      await loadOrders();
+    });
+  };
+
   document.querySelectorAll("#tbodyOrders button[data-id]").forEach((b) => {
     b.addEventListener("click", async () => {
       const act = b.dataset.act;
       const label = b.textContent;
-      if (CONFIRM[act] && !askTwice(b, CONFIRM[act], "Tap again to confirm")) return;
+      const ord = (window.__pdhOrders || []).find((x) => x.id === b.dataset.id) || {};
+      if (act === "releaseclaim") return beginClaimRelease(b, b.dataset.id);
+      /* Refunding something the supplier is still working on can pay the customer
+         back for data they are about to receive. The server refuses it unless the
+         request says the owner confirmed the loss, and this is the in-page way to
+         say so: an explicit second press that spells out the consequence. */
+      const inFlightRefund = act === "refund" && ["paid", "processing"].includes(ord.status) && !!ord.providerRef;
+      if (act === "refund" && CONFIRM[act] && !askTwice(b,
+        inFlightRefund
+          ? `The supplier already has this order (${ord.providerRef}) and may still deliver it. Refund ONLY if iDATA has confirmed it will not be delivered, or the customer can end up with both the money and the data. Press again to refund anyway.`
+          : CONFIRM[act],
+        inFlightRefund ? "Tap again to refund anyway" : "Tap again to confirm")) return;
+      if (CONFIRM[act] && act !== "refund" && !askTwice(b, CONFIRM[act], "Tap again to confirm")) return;
       b.disabled = true; b.textContent = "…";
       const url = act === "markpaid" ? "mark-paid" : act === "process" ? "status" : act;
       const body = act === "process" ? { status: "processing" } : {};
+      if (inFlightRefund) body.confirmInFlight = true;
       try {
         const { ok, data: r } = await ajax(`/api/admin/orders/${b.dataset.id}/${url}`, {
           method: "POST",
@@ -968,9 +1074,15 @@ function renderOrderRows() {
 // and a newly arrived order is highlighted and counted so it cannot be missed.
 async function pollOrders() {
   if (!canPollOrders()) return;
-  const { ok, data } = await ajax("/api/admin/orders");
+  /* With a search term in the box, ask the SERVER. The default poll only sees the
+     sixty most recent orders, so searching locally would answer "no order matches
+     that" for an order that does exist — the one thing an owner must never be told
+     about a paid order. */
+  const term = ($("#ordFilter") ? $("#ordFilter").value : "").trim();
+  const { ok, data } = await ajax(`/api/admin/orders${term ? `?q=${encodeURIComponent(term)}&limit=200` : ""}`);
   if (!ok) return;                       // a 401 reloads the page by itself
   const list = Array.isArray(data.orders) ? data.orders : [];
+  if (data.searching) lastSearch = { term, matched: Number(data.matched) || 0 };
   lastCheckedAt = new Date();
   // The baseline is taken from the first full load. If the poll somehow runs
   // before that, take it here so the next real order is still flagged.
@@ -1014,7 +1126,11 @@ function startOrderPoll() {
 
 // Typing in the order search re-draws the table from the rows already loaded.
 document.addEventListener("input", (e) => {
-  if (e.target && e.target.id === "ordFilter") renderOrderRows();
+  if (e.target && e.target.id === "ordFilter") {
+    renderOrderRows();                    // instant local filter, then the authoritative one
+    clearTimeout(ordSearchTimer);
+    ordSearchTimer = setTimeout(() => pollOrders(), 400);
+  }
 });
 
 async function loadUsers() {

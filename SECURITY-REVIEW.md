@@ -59,17 +59,8 @@ from the dashboard silently does nothing, the supplier webhook trusts unsigned i
 is unset, and the refund route will pay a customer back while the supplier is still delivering.
 
 **Findings: 1 critical, 2 high, 3 medium, 3 low.** Reproduction harness: `node test/supplier-send-safety.js`
-
-> **STATUS 2026-09-29: all 8 checks in this harness now PASS (was 2 passed, 6 failed).**
-> The findings below are kept as written so the reasoning stays visible. What changed:
-> F1 fixed by routing every supplier send through one `claimOrderForSend()` gate;
-> F2 by reading the payment key per call; F3 by failing the webhook signature check
-> closed plus a boot-time alert; F4 by refusing a refund while the supplier still
-> holds the order, with an explicit `confirmInFlight` override; F5 by pinning dotenv to
-> `__dirname` and requiring mock mode to be opted into explicitly; F6 by checking each
-> bulk row against open orders; F8 by trusting an explicit provider status before message
-> text and returning a consistent shape from `creditTopupOnce`. See the README for the
-> full table. Thanks — this found a real double-spend on the human-triggered paths.
+(currently **2 passed, 6 failed** — every failure is a way the owner pays for one order twice, or the
+record lies about what happened).
 
 ---
 

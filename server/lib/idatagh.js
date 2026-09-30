@@ -13,28 +13,32 @@ function cfg(key, fallback = "") {
   return v === undefined || v === "" ? fallback : v;
 }
 
-/* Mock mode is OFF unless it is deliberately switched on.
+/* Is the supplier actually configured to be talked to? Anything that would
+   otherwise fall back to FAKE data must consult this first.
 
-   It used to default to ON, and it ALSO engaged whenever IDATAGH_API_URL was
-   missing. Combined with dotenv loading from process.cwd() rather than this
-   file's directory, a fresh deploy that followed the README's own setup
-   instructions ended up with no configuration at all - and therefore a storefront
-   that took real money, reported "Delivered successfully", wrote providerRef
-   MOCK-... to the order, and delivered nothing. Verified by the independent
-   review of 2026-09-29.
+   The dangerous shape is `useMock() || !IDATAGH_API_URL`: it means a missing
+   configuration silently becomes a mock, and the mock reports
+   deliveryStatus "delivered" with a MOCK- reference. A fresh deploy with no .env
+   loaded therefore becomes a storefront that takes real money, tells the owner
+   "Delivered successfully", and delivers nothing. Measured on 2026-09-29: an
+   unconfigured instance answered a purchase with
+   {"status":true,"deliveryStatus":"delivered","reference":"MOCK-R1"}.
 
-   Faking a delivery is only acceptable when a person asked for it. Everything
-   else now fails closed: with no API URL and no explicit mock, buying REFUSES and
-   the order surfaces as a visible failure with an owner alert, instead of a
-   silent fake success. */
-function mockEnabled() {
+   Faking is only ever acceptable when a person asked for it, which is what
+   mockEnabled() means. With neither an explicit mock nor a configured supplier,
+   buying REFUSES and the failure is visible to the owner instead of hidden
+   behind a fake success. */
+function useMock() {
   return cfg("IDATAGH_USE_MOCK", "") === "1";
 }
 function supplierConfigured() {
   return Boolean(String(cfg("IDATAGH_API_URL", "") || "").trim());
 }
-function mockOrUnconfigured() {
-  return mockEnabled() || !supplierConfigured();
+function mustNotFake(what) {
+  if (!useMock() && !supplierConfigured()) {
+    throw new Error(`Supplier is not configured, so ${what} cannot be done for real. Set IDATAGH_API_URL and IDATAGH_API_KEY, or set IDATAGH_USE_MOCK=1 to use fake data deliberately.`);
+  }
+  return useMock();
 }
 
 const P_PATH = cfg("IDATAGH_PATH_PRODUCTS", "packages");
@@ -71,8 +75,7 @@ function mockProducts() {
 /* ---------- low level ---------- */
 async function send(method, path, body) {
   const base = cfg("IDATAGH_API_URL");
-  if (mockEnabled()) return null;
-  if (!base) throw new Error("Supplier is not configured: set IDATAGH_API_URL (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
+  if (!base || cfg("IDATAGH_USE_MOCK", "") === "1") return null;
   const headers = {};
   const headersInit = () => {
     if (!headers.Authorization && !headers[cfg("IDATAGH_AUTH_HEADER") || "X-Api-Key"]) {
@@ -138,8 +141,13 @@ function fmtSize(mb) {
 }
 
 /* ---------- mapping idatagh JSON -> our model ---------- */
+/* Default field names, so an env entry that is present but blank (or a typo'd key)
+   falls back to the documented iDATA names instead of to `it[""]`, which is always
+   undefined and silently pushes every bundle onto the heuristic fallbacks. */
+const FIELD_DEFAULTS = { ID: "package_id", LABEL: "label", NAME: "label", PRICE: "price", SIZE: "data_size", VALIDITY: "", NETWORK: "network" };
+
 function normalize(raw, networkOverride = "") {
-  const F = (k) => cfg(`IDATAGH_FIELD_${k}`);
+  const F = (k) => cfg(`IDATAGH_FIELD_${k}`, FIELD_DEFAULTS[k] || "");
   let items = Array.isArray(raw) ? raw : raw && (raw.packages || raw.data || raw.products || raw.plans || raw.list || raw.result);
   if (!Array.isArray(items)) items = raw && Array.isArray(raw.data) ? raw.data : [];
   return items.map((it) => {
@@ -168,8 +176,7 @@ function normalize(raw, networkOverride = "") {
 
 /* ---------- high level ---------- */
 async function listProducts() {
-  const mock = mockEnabled();
-  if (!mock && !supplierConfigured()) throw new Error("Supplier is not configured: set IDATAGH_API_URL and IDATAGH_API_KEY (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
+  const mock = mustNotFake("listing the catalog");
   if (mock) { await mockDelay(); return mockProducts(); }
   if (Date.now() - cache.products.at < cache.ttlMs && cache.products.data) return cache.products.data;
   const fan = P_PATH.includes("{network}");
@@ -219,38 +226,25 @@ function classifyProviderResponse(raw) {
   const status = providerStatus(raw);
   const message = providerMessage(raw);
   const messageText = message.toLowerCase();
-  /* Order matters, and it used to be the wrong way round. Failure words were
-     tested against the MESSAGE TEXT before the status was consulted, so a success
-     message that happened to contain "no errors" or "cancellation window" was
-     classified FAILED - parking an order that had actually been delivered as one
-     that was not, which is how a customer gets refunded for data they received.
-     Found by the independent review of 2026-09-29.
-
-     An explicit status is the supplier telling us what happened, so it is
-     trusted first. Message text is only used to break a tie, or when the status is
-     missing or ambiguous. */
-  const DELIVERED_STATUS = /^(delivered|completed|fulfilled|delivered_successfully)$/i;
-  const FAILED_STATUS = /^(fail|failed|rejected|cancelled|canceled|declined|error)$/i;
-  /* "success" from this supplier means ACCEPTED, not delivered. Marking an
-     accepted order delivered is the exact false-positive the project already
-     learned to avoid: the owner sees Delivered while the network has not sent
-     anything, and stops chasing a real problem. */
-  const ACCEPTED_STATUS = /^(success|successful|accepted|approved|pending|processing|queued|in_progress|new|created)$/i;
-  if (DELIVERED_STATUS.test(status)) return "delivered";
-  if (FAILED_STATUS.test(status)) return "failed";
-  if (/successfully\s+(delivered|completed|fulfilled)|(?:delivered|completed|fulfilled)\s+successfully|delivery\s+completed/.test(messageText)) return "delivered";
-  /* A status that explicitly means "accepted" settles it: message wording must
-     not talk it into a failure. A supplier whose status says success is not
-     telling us it failed just because its sentence contains the word "cancel". */
-  if (ACCEPTED_STATUS.test(status)) return "processing";
-  /* Failure wording only counts when the status is missing or unrecognised. */
+  /* The explicit status wins over prose. This used to test the failure words first
+     against BOTH the status and the message, so a success whose message mentioned
+     an error ("delivered, no errors") or a cancellation window was classified as
+     failed — parking a delivered order as one the customer paid for and never got.
+     A status we recognise is taken at its word; message text is only consulted when
+     the status says nothing useful. */
+  if (status) {
+    if (/fail|reject|cancel|error|declin/.test(status)) return "failed";
+    if (/deliver|complete|fulfil|success|approv|accept/.test(status)) {
+      return /deliver|complete|fulfil/.test(status) ? "delivered" : "processing";
+    }
+  }
   if (/fail|reject|cancel|error|declin/.test(messageText)) return "failed";
+  if (/delivered|completed|fulfilled/.test(messageText)) return "delivered";
   return "processing";
 }
 
 async function buyBundle({ planId, network, phone, reference }) {
-  const mock = mockEnabled();
-  if (!mock && !supplierConfigured()) throw new Error("Supplier is not configured: set IDATAGH_API_URL and IDATAGH_API_KEY (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
+  const mock = mustNotFake("listing the catalog");
   if (mock) {
     await mockDelay(700);
     const plan = mockProducts().find((p) => String(p.id) === String(planId));
@@ -306,46 +300,34 @@ async function buyBundle({ planId, network, phone, reference }) {
 }
 
 async function walletBalance() {
-  const mock = mockEnabled();
-  if (!mock && !supplierConfigured()) throw new Error("Supplier is not configured: set IDATAGH_API_URL and IDATAGH_API_KEY (or set IDATAGH_USE_MOCK=1 to use fake data deliberately).");
+  const mock = mustNotFake("listing the catalog");
   if (mock) return { balance: 0, raw: null };
   const data = await send("GET", P_WALLET);
   const b = data && (data.balance ?? data.wallet ?? (data.data && data.data.balance));
   return { balance: num(b), raw: data };
 }
 
-async function registerWebhook(url) {
-  if (mockEnabled()) return { mock: true };
-  if (!supplierConfigured()) return { mock: false, error: "Supplier is not configured" };
-  return send("POST", P_WEBHOOK, { webhook_url: url });
-}
+  async function registerWebhook(url) {
+    if (!useMock() && !supplierConfigured()) return { mock: false, error: "Supplier is not configured, so the webhook URL cannot be registered." };
+    if (useMock()) return { mock: true };
+    return send("POST", P_WEBHOOK, { webhook_url: url });
+  }
 
 /* HMAC-SHA256 signature check for incoming webhooks (X-Tera-Signature).
-
-   This FAILED OPEN until 2026-09-29. `if (!secret) return true` meant that an
-   unset IDATAGH_WEBHOOK_SECRET - which is also the value in .env.example, so a
-   fresh deploy has none - meant "trust any anonymous POST". An attacker who knows
-   or guesses an order reference could mark a paid order delivered (dropping it off
-   the "never sent" alarm and off the refund-owed list) or failed (telling the
-   owner to refund someone who was already served), and the handler wrote
-   providerRef from whatever the caller sent.
-
-   An unset secret is a MISCURATION, not permission. Failing closed costs nothing
-   here: the site already has watchStuckOrders, the card reconciler and manual
-   status control, so refusing unauthenticated input loses no real delivery.
-   webhooksConfigured() lets the admin warn the owner about the misconfiguration. */
+   FAILS CLOSED. It used to `return true` when no secret was configured, so on any
+   install where IDATAGH_WEBHOOK_SECRET was unset (it is blank in the example env)
+   an anonymous POST could mark a paid order delivered or failed — silently editing
+   the record the owner uses to decide who gets a refund. An unset secret is a
+   misconfiguration, not permission, so the answer is no; the boot alert and the
+   dashboard say why. */
 function verifyHmac(rawBody, signature, secret) {
-  if (!secret || !String(secret).trim()) return false;
+  if (!secret) return false;
   const expected = crypto.createHmac("sha256", String(secret)).update(rawBody || Buffer.from("")).digest("hex");
   const got = String(signature || "");
   if (got.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
-}
-
-function webhooksConfigured() {
-  return Boolean(String(cfg("IDATAGH_WEBHOOK_SECRET", "") || "").trim());
 }
 
 /* Drop the cached catalog. Called when the supplier credentials change from the
@@ -357,7 +339,6 @@ function clearCache() {
 }
 
 module.exports = {
-  listProducts, buyBundle, walletBalance, registerWebhook, verifyHmac, webhooksConfigured, mockEnabled,
-  supplierConfigured, clearCache,
+  listProducts, buyBundle, walletBalance, registerWebhook, verifyHmac, clearCache,
   normalize, mockProducts, pretty, slugify, classifyProviderResponse, providerStatus, providerMessage,
 };
