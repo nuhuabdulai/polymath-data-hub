@@ -2259,10 +2259,57 @@ app.post("/api/wallet/bulk-order", requireUser, rateLimit(LIMIT_WINDOW, 5), asyn
 /* Admin shell is public; every /api/admin/* route is behind requireAdmin, so the
    login form must be reachable or the owner is locked out of their own panel. */
 app.get("/admin.html", (req, res) => {
-  res.sendFile(publicPath("admin.html"));
+  servePage(res, "admin.html");
 });
 
 /* ---------- public API ---------- */
+/* The HTML carries the public domain in five places that matter to a customer:
+   <link rel=canonical>, og:url, og:image, twitter:image and the structured data. All
+   of them were hard-coded to the anonymised placeholder, so every shared link pointed
+   at a domain that does not exist — and a relative og:image means WhatsApp shows no
+   picture at all, which is what most people here use to pass a link on.
+
+   Substituting at serve time means the domain lives in ONE place (PUBLIC_BASE_URL, the
+   same setting Paystack redirects to) instead of being edited into twelve files on
+   deploy. Pages are no-cache, so the substitution cannot go stale in a browser. */
+const PLACEHOLDER_BASE = "https://bundles.example.com";
+function publicBase() {
+  return String(PUBLIC_BASE || cfg("PUBLIC_BASE_URL", "") || "").replace(/\/$/, "");
+}
+function servePage(res, file) {
+  let html;
+  try {
+    html = fs.readFileSync(publicPath(file), "utf8");
+  } catch {
+    return res.status(404).type("text").send("Page not found.");
+  }
+  const base = publicBase();
+  if (base && base !== PLACEHOLDER_BASE) html = html.split(PLACEHOLDER_BASE).join(base);
+  res.type("html").setHeader("Cache-Control", "no-cache").send(html);
+}
+
+/* Serve the HTML ourselves so the substitution above applies, and leave everything
+   else to the static handler (which sets the one-year immutable cache on assets). */
+app.get(["/", "/index.html"], (req, res) => servePage(res, "index.html"));
+
+/* Same substitution for the two files crawlers read. Registered here, above
+   express.static, because static would serve them first and the sitemap would keep
+   advertising the placeholder domain. */
+for (const [route, file, type] of [["/sitemap.xml", "sitemap.xml", "application/xml"], ["/robots.txt", "robots.txt", "text/plain"]]) {
+  app.get(route, (req, res) => {
+    let body;
+    try { body = fs.readFileSync(publicPath(file), "utf8"); }
+    catch { return res.status(404).end(); }
+    const base = publicBase();
+    if (base && base !== PLACEHOLDER_BASE) body = body.split(PLACEHOLDER_BASE).join(base);
+    res.type(type).send(body);
+  });
+}
+app.use((req, res, next) => {
+  if (req.method !== "GET" || !/\.html$/i.test(req.path)) return next();
+  servePage(res, req.path.replace(/^\//, ""));
+});
+
 app.use(express.static(PUBLIC_DIR_CFG, { maxAge: "1y", immutable: true, setHeaders: (res, filePath) => {
   if (/\.html$/i.test(filePath)) res.setHeader("Cache-Control", "no-cache");
   else if (/\.(js|css)$/i.test(filePath)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
@@ -2727,7 +2774,7 @@ app.post("/api/paystack/webhook", async (req, res) => {
 
 /* ---------- admin API ---------- */
 app.get("/admin", (req, res) => {
-  res.sendFile(publicPath("admin.html"));
+  servePage(res, "admin.html");
 });
 
 // Orders only, with no supplier call. The dashboard summary also asks iDATA for
@@ -3216,21 +3263,23 @@ app.post("/api/admin/orders/:id/clear-send-claim", requireAdmin, rateLimit(LIMIT
 });
 
 app.get("/account", (req, res) => {
-  res.sendFile(publicPath("account.html"));
+  servePage(res, "account.html");
 });
 
 app.get("/complete", (req, res) => {
-  res.sendFile(publicPath("complete.html"));
+  servePage(res, "complete.html");
 });
 for (const p of ["mtn", "telecel", "airteltigo"]) {
-  app.get(`/${p}`, (req, res) => res.sendFile(publicPath(`${p}.html`)));
+  app.get(`/${p}`, (req, res) => servePage(res, `${p}.html`));
 }
 for (const p of ["terms", "refund-policy", "privacy"]) {
-  app.get(`/${p}`, (req, res) => res.sendFile(publicPath(`${p}.html`)));
+  app.get(`/${p}`, (req, res) => servePage(res, `${p}.html`));
 }
-app.get("/product", (req, res) => res.sendFile(publicPath("product-detail.html")));
-app.get("/sitemap.xml", (req, res) => res.sendFile(publicPath("sitemap.xml")));
-app.get("/robots.txt", (req, res) => res.sendFile(publicPath("robots.txt")));
+app.get("/product", (req, res) => servePage(res, "product-detail.html"));
+/* NOTE: /sitemap.xml and /robots.txt are served by the same substitution block that
+   handles the HTML — see servePage() above. They must be registered BEFORE
+   express.static, which would otherwise hand back the file with the placeholder
+   domain still in it (it did, the first time this was written). */
 
 /* security.txt (RFC 9116), built from configuration.
    The published file said mailto:you@example.com, which tells a security researcher

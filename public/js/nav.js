@@ -57,11 +57,12 @@
 
   /* Scrolling or rotating with the menu open left it hanging there. */
   window.addEventListener("scroll", function () { if (isOpen()) setOpen(false); }, { passive: true });
-  window.addEventListener("resize", function () { if (isOpen() && window.innerWidth > 860) setOpen(false); });
 
-  /* Open again if the viewport grows while it is open. */
+  /* Rotating to landscape or resizing past the desktop breakpoint left the mobile
+     panel open on top of the desktop nav. (This used to be registered twice, with a
+     comment that said the opposite of what it did.) */
   window.addEventListener("resize", function () {
-    if (window.innerWidth > 860 && isOpen()) setOpen(false);
+    if (isOpen() && window.innerWidth > 860) setOpen(false);
   });
 
   /* Keyboard: the hamburger is a real button, so Enter/Space already work. */

@@ -96,6 +96,19 @@ else
 fi
 
 echo
+echo "== 5. accessibility (colour contrast)"
+if [ -f scripts/check-contrast.js ]; then
+  if out=$(node scripts/check-contrast.js 2>&1); then
+    good "every text/background pair meets WCAG AA"
+  else
+    printf '%s\n' "$out" | sed 's/^/        /'
+    bad "contrast check failed — a colour token was changed to something unreadable"
+  fi
+else
+  printf '  note  scripts/check-contrast.js is missing — skipping the contrast gate\n'
+fi
+
+echo
 if [ "$fail" -eq 0 ]; then
   echo "preflight PASSED — safe to restart"
 else

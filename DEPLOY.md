@@ -72,8 +72,23 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d YOUR.DOMAIN
 ```
 
-Then set `PUBLIC_BASE_URL=https://YOUR.DOMAIN` in `server/.env`: Paystack redirects the
-customer there after payment, and it is what the tracking and account pages link to.
+Then set `PUBLIC_BASE_URL=https://YOUR.DOMAIN` in `server/.env`. It is the canonical
+public origin: Paystack redirects the customer there after payment, and every HTML page
+ships with `https://bundles.example.com` hard-coded in its `<link rel=canonical>`,
+`og:url`, `og:image` and structured data. The server swaps that placeholder for
+`PUBLIC_BASE_URL` as it serves each page, and does the same for `sitemap.xml` and
+`robots.txt`.
+
+Get it wrong and the failure is quiet but expensive: shared links point at a domain that
+does not exist, so WhatsApp shows no preview picture, and search engines index the
+placeholder. Check it after a deploy with:
+
+```bash
+curl -s https://YOUR.DOMAIN/ | grep -E 'canonical|og:url|og:image'
+curl -s https://YOUR.DOMAIN/robots.txt
+```
+
+If either still says `bundles.example.com`, `PUBLIC_BASE_URL` is empty or unset.
 
 The two webhook locations are in their own `location =` blocks on purpose. Their
 signatures are computed over the exact bytes of the body, so nothing in nginx may

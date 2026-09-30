@@ -7,7 +7,7 @@
 <meta name="robots" content="noindex,nofollow" />
 <link rel="apple-touch-icon" href="/img/icon-192.png" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📶</text></svg>" />
-<link rel="stylesheet" href="/css/style.css?v=67" />
+<link rel="stylesheet" href="/css/style.css?v=68" />
 <style>
   /* Specific styles for the completion page */
   .status-container { text-align: center; padding: 20px; }
@@ -26,10 +26,11 @@
 <meta name="theme-color" content="#0e7490" />
 </head>
 <body>
-<section class="cta" style="min-height:100vh;display:grid;place-items:center;text-align:center;padding: 20px;">
+<a class="skip-link" href="#main">Skip to content</a>
+<main id="main" class="cta" style="min-height:100vh;display:grid;place-items:center;text-align:center;padding: 20px;">
   <div class="wrap narrow status-container">
     <div class="status-icon" id="statusIcon">⏳</div>
-    <h2 class="status-title" id="statusTitle">Verifying Payment…</h2>
+    <h1 class="status-title" id="statusTitle">Verifying Payment…</h1>
     <p class="status-detail" id="statNote">We are checking the status of your order. This usually takes a few moments.</p>
     <div id="progressTrack" class="progress-track" aria-label="Order progress"></div>
     
@@ -46,7 +47,7 @@
       <a class="btn btn-light" href="/">← Back to Shop</a>
     </div>
   </div>
-</section>
+</main>
 
 <script src="/js/complete.js?v=7"></script>
 </body>
