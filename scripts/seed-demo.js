@@ -195,8 +195,10 @@ for (const u of users) {
 const write = (name, value) => {
   const f = path.join(DATA, name);
   const tmp = `${f}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);
   fs.renameSync(tmp, f);
+  try { fs.chmodSync(f, 0o600); } catch (_) {}
 };
 
 // ---- backup whatever is there now -----------------------------------------

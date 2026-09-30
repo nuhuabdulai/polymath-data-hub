@@ -287,12 +287,35 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ---------- CSRF Origin check (Medium 4) ---------- */
+/* ---------- CSRF Origin check (Medium 4) ----------
+   A browser always sends Origin on a POST, so anything that is not this site is
+   refused. The site's own origin is derived from the Host header the visitor is
+   actually using (plus PUBLIC_BASE_URL and the localhost conveniences), not a
+   single hard-coded domain — the hard-coded check 403-ed every customer on any
+   other host, including a preview deployment: the whole store dead in a real
+   browser while curl worked fine. */
 app.use((req, res, next) => {
   if (req.method === "POST" && req.path.startsWith("/api/")) {
     const origin = req.get("origin") || "";
-    if (origin && origin !== "https://bundles.example.com" && !origin.startsWith("http://localhost") && !origin.startsWith("http://127.0.0.1")) {
-      return res.status(403).json({ error: "Forbidden origin" });
+    if (origin) {
+      const allowed = new Set(["https://bundles.example.com"]);
+      // Hosts this deployment answers as: the Host header and, when an edge
+      // proxy rewrites Host, the original it reports in X-Forwarded-Host. Both
+      // http and https forms are allowed here because the HTTPS redirect above
+      // has already enforced tls for anything that matters.
+      const hosts = new Set();
+      for (const h of [req.get("host"), req.get("x-forwarded-host")]) {
+        String(h || "").split(",").forEach((x) => { const v = x.trim(); if (v) hosts.add(v); });
+      }
+      for (const h of hosts) { allowed.add(`https://${h}`); allowed.add(`http://${h}`); }
+      try {
+        const base = publicBase();
+        if (base && base !== PLACEHOLDER_BASE) allowed.add(String(base).replace(/\/+$/, ""));
+      } catch (_) {}
+      const local = origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1");
+      if (!allowed.has(origin) && !local) {
+        return res.status(403).json({ error: "Forbidden origin" });
+      }
     }
   }
   next();
@@ -1659,11 +1682,25 @@ app.post("/api/wallet/order", requireUser, rateLimit(LIMIT_WINDOW, ORDER_MAX), a
     const me = users.find((u) => u.id === req.user.id);
     if (!me) return res.status(401).json({ error: "Session ended. Sign in again." });
     if (me.wallet < sell) return res.status(400).json({ error: "Insufficient balance. Add credit to your wallet first.", wallet: me.wallet });
-    const availability = await supplierPurchaseGuard(plan.cost);
-    if (!availability.ok) return res.status(availability.status).json({ error: availability.error, outOfStock: Boolean(availability.outOfStock) });
-
+    /* Deduct BEFORE any await. The check, the deduction and the save must sit in
+       one synchronous block: the supplier guard below is a network round trip on
+       the live API, and with the old order (check, await guard, deduct) two
+       orders fired together both passed the check against the same balance and
+       each wrote its own deduction — more bundles than the customer paid for.
+       Node runs a synchronous block atomically, so the second request now loads
+       the balance the first already wrote. */
     me.wallet = Math.round((me.wallet - sell) * 100) / 100;
     saveUsers(users);
+
+    const availability = await supplierPurchaseGuard(plan.cost);
+    if (!availability.ok) {
+      // The supplier refuses the purchase, so give the customer their money back
+      // (fresh load: something else may have touched the account meanwhile).
+      const fresh = loadUsers();
+      const me2 = fresh.find((u) => u.id === me.id);
+      if (me2) { me2.wallet = Math.round((me2.wallet + sell) * 100) / 100; saveUsers(fresh); }
+      return res.status(availability.status).json({ error: availability.error, outOfStock: Boolean(availability.outOfStock) });
+    }
 
     const order = newOrder();
     warnIfBelowCost(plan, sell, `Order ${order.id}`);
@@ -2088,6 +2125,9 @@ app.put("/api/admin/pricing", requireAdmin, (req, res) => {
 /* Per-plan override: { fixed: number } pins the price, or { mode: "auto" } clears it. */
 app.put("/api/admin/pricing/plan/:id", requireAdmin, (req, res) => {
   const id = String(req.params.id);
+  /* Plan ids are small integers. Anything else — notably "__proto__" — must be
+     refused before it is used as a key on the overrides object. */
+  if (!/^[0-9]{1,4}$/.test(id)) return res.status(400).json({ error: "Invalid plan id." });
   const p = loadPricing();
   const body = req.body || {};
   if (body.mode === "auto" || body.fixed === null || body.fixed === "") {
@@ -2236,10 +2276,20 @@ app.post("/api/wallet/bulk-order", requireUser, rateLimit(LIMIT_WINDOW, 5), asyn
     if (p && !seenPlanIds.has(String(p.id))) { seenPlanIds.add(String(p.id)); warnIfBelowCost(p, v.sell, `Bulk order from ${me.name}`); }
   }
   if (me.wallet < total) return res.status(400).json({ error: `Insufficient balance. Need GHS ${total.toFixed(2)}`, wallet: me.wallet });
-  const availability = await supplierPurchaseGuard(supplierTotal);
-  if (!availability.ok) return res.status(availability.status).json({ error: availability.error, outOfStock: Boolean(availability.outOfStock) });
+  /* Deduct BEFORE the supplier guard await — same rule as the single wallet
+     order. The guard is a network round trip on the live API; with the deduction
+     after it, two bulk orders fired together could both pass against the same
+     balance. Check, deduct and save are one synchronous block now, and a refused
+     purchase is refunded from a fresh load. */
   me.wallet = Math.round((me.wallet - total) * 100) / 100;
   saveUsers(users);
+  const availability = await supplierPurchaseGuard(supplierTotal);
+  if (!availability.ok) {
+    const fresh = loadUsers();
+    const me2 = fresh.find((u) => u.id === me.id);
+    if (me2) { me2.wallet = Math.round((me2.wallet + total) * 100) / 100; saveUsers(fresh); }
+    return res.status(availability.status).json({ error: availability.error, outOfStock: Boolean(availability.outOfStock) });
+  }
   const orders = loadOrders();
   const created = [];
   for (const v of validated) {
@@ -2251,8 +2301,11 @@ app.post("/api/wallet/bulk-order", requireUser, rateLimit(LIMIT_WINDOW, 5), asyn
   }
   activity("order", `Bulk order from ${me.name}: ${validated.length} numbers, GHS ${total.toFixed(2)} paid. Waiting for owner approval - nothing sent to the supplier.`);
   alertAdmin("topup", `Bulk order paid by ${me.name}: ${validated.length} numbers, GHS ${total.toFixed(2)}. Waiting for you to approve. Nothing has been sent to the supplier.`, `awaiting-approval-bulk:${me.id}`);
+  saveOrders(orders);
+  /* The referral bonus loads and saves the users file itself, so it must run
+     AFTER our last saveUsers: the trailing save that used to follow it wrote the
+     older, pre-bonus array back over the file and silently swallowed the bonus. */
   creditReferralOnFirstPurchase(me.id);
-  saveUsers(users); saveOrders(orders);
   res.json({ ok: true, orders: created, balance: me.wallet, total, awaitingApproval: true, refundPending: 0 });
 });
 
