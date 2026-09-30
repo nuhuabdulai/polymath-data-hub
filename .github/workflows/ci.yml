@@ -1,5 +1,7 @@
-# The gate. Both suites run against stubs — no network, no real supplier, no real
-# Paystack — so they are safe to run on every push.
+# The gate. Every suite runs against stubs — no network, no real supplier, no real
+# Paystack — so they are safe to run on every push. A non-zero exit from any step
+# blocks the commit, which is the point: a money bug must not reach production
+# because nobody had time to run the tests by hand.
 name: ci
 
 on:
@@ -25,10 +27,10 @@ jobs:
         run: node test/refund-safety.js
       - name: Can one payment buy two bundles? (18 checks)
         run: node test/supplier-send-safety.js
-        # Added after this rule was silently reintroduced TWICE by refactors, each
-        # time by the same shape: `useMock() || !IDATAGH_API_URL`, which turns a
-        # MISSING configuration into a fake "delivered". A failure here means an
-        # unconfigured storefront can take real money and report a delivery that
-        # never happened. This is the test that was missing both times.
-        - name: An unconfigured supplier must not fake a delivery (9 checks)
-          run: node test/unconfigured-supplier-safety.js
+      # Added after this rule was silently reintroduced TWICE by refactors, each
+      # time by the same shape: `useMock() || !IDATAGH_API_URL`, which turns a
+      # MISSING configuration into a mock that reports "delivered". A failure here
+      # means an unconfigured storefront can take real money and report a delivery
+      # that never happened. This is the test that was missing both times.
+      - name: An unconfigured supplier must not fake a delivery (9 checks)
+        run: node test/unconfigured-supplier-safety.js
