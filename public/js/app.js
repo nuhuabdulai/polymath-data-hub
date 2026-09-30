@@ -22,6 +22,16 @@ function showOrderError(msg) {
   toast(msg, true, 6000);
 }
 function esc(s){return String(s??"").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,"").replace(/[&<>"']/g,c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+/* The PD- tracking code is the ONLY string the tracker accepts, and until now it
+   was the small print while the order ref was the headline. Customers read the
+   headline, send the ref on WhatsApp, then get told the ref is invalid. So the code
+   is now the prominent, selectable, copyable thing, with the ref demoted to a
+   footnote underneath. */
+function trackCodeBlock(ou) {
+  if (!ou || !ou.trackCode) return "";
+  return `<div class="track-code"><span class="track-code-label">YOUR TRACKING CODE</span><b class="track-code-value">${esc(ou.trackCode)}</b><span class="track-code-hint">Use this to track your order. It is not your order number.</span></div>`;
+}
+
 function progressHtml(progress) {
   if (!progress || !Array.isArray(progress.steps)) return "";
   return `<div class="progress-track" role="list" aria-label="Order progress">${progress.steps.map((step) => `<div class="progress-step ${esc(step.state)}" role="listitem"><span class="progress-dot" aria-hidden="true">${step.state === "complete" ? "✓" : step.state === "current" ? "•" : ""}</span><span>${esc(step.label)}</span></div>`).join("")}</div><p class="progress-label">${esc(progress.label || "")}</p>`;
@@ -608,22 +618,35 @@ function successHtml(res, plan) {
     return `<div class="success"><div class="check">🔐</div><h3>Almost done</h3><p>Complete your payment and your ${esc(humanSize(plan.sizeMb) || plan.name)} is sent to the network automatically. Delivery is usually minutes, but can take hours when a network is congested.</p><a class="btn btn-pay btn-block" href="${esc(p.url)}" target="_blank" rel="noopener">PAY NOW</a><p class="dim">Tracking code: <b>${esc(ou.trackCode || "shown in your account")}</b></p><button type="button" class="link-btn" id="scTrack" data-prefill="${esc(ou.trackCode || "")}">Track this order</button><button type="button" class="link-btn" data-close>Close</button></div>`;
   }
   const conf = state.config; const wa = conf.contact && conf.contact.whatsapp;
-  return `<div class="success"><div class="check">✅</div><h3>Order placed: ${esc(ou.id)}</h3><p>${esc(p.note || "Proceed with payment to receive your data.")}</p><p class="dim">Amount: ${esc(p.currency)} ${esc(fmt(p.amount))} · Beneficiary ends ${esc(ou.phone && ou.phone.slice(-4))}</p><p class="dim">Your tracking code: <b>${esc(ou.trackCode || "shown in your account")}</b></p>${wa ? `<a class="btn btn-whatsapp btn-block" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`Hi, I just placed data order ${ou.id}. Let me know how to pay.`)}" target="_blank" rel="noopener">SEND PAYMENT PROOF ON WHATSAPP ↗</a>` : ""}<div class="pay-actions"><button type="button" class="link-btn" id="scTrack" data-prefill="${esc(ou.trackCode || "")}">Track this order</button><button type="button" class="btn btn-primary btn-block" data-buyagain>Buy again → ${esc(formatGh(ou.phone))}</button></div><button type="button" class="link-btn" data-close>Close</button></div>`;
+  return `<div class="success"><div class="check">✅</div><h3>Order placed</h3><p>${esc(p.note || "Proceed with payment to receive your data.")}</p><p class="dim">Amount: ${esc(p.currency)} ${esc(fmt(p.amount))} · Beneficiary ends ${esc(ou.phone && ou.phone.slice(-4))}</p>${trackCodeBlock(ou)}<p class="dim">Order ref: ${esc(ou.id)}</p>${wa ? `<a class="btn btn-whatsapp btn-block" href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`Hi, I just placed a data order.\nTracking code: ${ou.trackCode || "(in my confirmation)"}\nOrder ref: ${ou.id}\nLet me know how to pay.`)}" target="_blank" rel="noopener">SEND PAYMENT PROOF ON WHATSAPP ↗</a>` : ""}<div class="pay-actions"><button type="button" class="link-btn" id="scTrack" data-prefill="${esc(ou.trackCode || "")}">Track this order</button><button type="button" class="btn btn-primary btn-block" data-buyagain>Buy again → ${esc(formatGh(ou.phone))}</button></div><button type="button" class="link-btn" data-close>Close</button></div>`;
 }
 const TRACK_TMPL = (extra) => `
   <h3>Track an order</h3>
   <p class="dim">Enter the tracking code shown after your order. It looks like <b>PD-XXXXXXXXXX</b>.</p>
-  <div class="field"><label for="trId">Tracking code</label><input id="trId" type="text" placeholder="PD-XXXXXXXXXX" autocomplete="off" maxlength="13" value="${extra || ""}" /></div>
+  <div class="field"><label for="trId">Tracking code</label><input id="trId" type="text" placeholder="PD-XXXXXXXXXX" autocomplete="off" maxlength="24" value="${extra || ""}" /></div>
+  <div class="field" id="trLast4Wrap" hidden><label for="trLast4">Last 4 digits of the number</label><input id="trLast4" type="tel" inputmode="numeric" placeholder="e.g. 6789" autocomplete="off" maxlength="4" /></div>
   <div class="pay-actions"><button type="button" class="btn btn-primary btn-block" id="trGo">CHECK STATUS</button></div>
   <p class="inp-err" id="trErr" role="alert"></p><div id="trReport"></div>`;
-function openTrack(prefillCode) { $("#modalInner").innerHTML = TRACK_TMPL(esc(prefillCode || "")); openModal(); const ti=$("#trId"); if(ti) { ti.focus(); ti.select(); } $("#trGo").addEventListener("click", () => doTrack()); $("#trId").addEventListener("keydown", (e)=> e.key==="Enter" && doTrack()); }
+function openTrack(prefillCode) { $("#modalInner").innerHTML = TRACK_TMPL(esc(prefillCode || "")); openModal(); const ti=$("#trId"); if(ti) { ti.focus(); ti.select(); } $("#trGo").addEventListener("click", () => doTrack()); $("#trId").addEventListener("keydown", (e)=> e.key==="Enter" && doTrack());
+    const tid = $("#trId"), tw = $("#trLast4Wrap");
+    if (tid && tw) tid.addEventListener("input", () => { tw.hidden = !/^YB[A-Z0-9]{8,}$/.test(tid.value.trim().toUpperCase()); }); }
 async function doTrack() {
   const code = $("#trId").value.trim().toUpperCase();
   const report = $("#trReport"); const err = $("#trErr");
-  if (!/^PD-[A-F0-9]{10}$/.test(code)) { if (err) err.textContent = "Enter the tracking code from your order confirmation."; return; }
-  if (err) err.textContent = ""; report.innerHTML = '<p class="dim">Checking…</p>';
+const last4El = $("#trLast4"); const wrap = $("#trLast4Wrap");
+    const isRef = /^YB[A-Z0-9]{8,}$/.test(code);
+    /* A ref is accepted, but only alongside the last 4 digits of the beneficiary
+       number. Customers were shown the ref as the HEADLINE of their confirmation and
+       the PD- code as small print, so being told it was "invalid" helped nobody. The
+       server enforces the same rule; this is only so the second box appears before
+       they press the button. */
+    if (wrap) wrap.hidden = !isRef;
+    if (!isRef && !/^PD-[A-F0-9]{10}$/.test(code)) { if (err) err.textContent = "Enter the tracking code from your confirmation (PD-XXXXXXXXXX), or your order ref with the last 4 digits of the number."; return; }
+    const last4 = isRef && last4El ? last4El.value.replace(/\D/g, "").slice(-4) : "";
+    if (isRef && last4.length !== 4) { if (err) err.textContent = "Add the last 4 digits of the number the data goes to."; if (last4El) last4El.focus(); return; }
+    if (err) err.textContent = ""; report.innerHTML = '<p class="dim">Checking…</p>';
   try {
-    const o = await api("/api/order/track", { method: "POST", body: JSON.stringify({ code }) });
+    const o = await api("/api/order/track", { method: "POST", body: JSON.stringify({ code, phone: last4 }) });
     const badge = statusBadge(o.status);
     report.innerHTML = `<div class="order-sum"><div><span>Order</span><span>${esc(o.id)}</span></div><div><span>Bundle</span><span>${esc(o.planName)} (${esc(o.network)})</span></div><div><span>Placed</span><span>${esc(new Date(o.created).toLocaleString())}</span></div><div><span>Amount</span><span>${esc(o.currency)} ${esc(fmt(o.sell))}</span></div><div class="total"><span>Status</span><span>${badge}</span></div></div>${progressHtml(o.progress)}${o.status === "pending" ? '<p class="dim">We have your order. If you paid, send proof on WhatsApp and we\'ll deliver.</p>' : ""}${o.status === "processing" || o.status === "paid" ? `<p class="dim">${esc(o.progress && o.progress.label ? o.progress.label : "Your data is being processed.")}</p>` : ""}${o.status === "failed" ? '<p class="phone-warn" style="margin-top:12px">This order hasn\'t been delivered. Message us on WhatsApp and we\'ll sort it out.</p><button type="button" class="btn btn-primary btn-block" data-buyagain>Buy again</button>' : ""}`;
   } catch (e) { report.innerHTML = `<p class="inp-err" style="margin-top:12px">${esc(e.message)}</p>`; }
@@ -658,7 +681,7 @@ function closeModal() { const m = $("#orderModal"); m.classList.remove("open"); 
   if (location.hash === "#track") setTimeout(()=> openTrack(""), 600);
   window.addEventListener("hashchange", () => { if (location.hash === "#track") openTrack(""); });
   if (qp.get("ref")) try { localStorage.setItem("pending_ref", qp.get("ref")); } catch {}
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=76", { updateViaCache: "none" }).catch(()=>{});
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=77", { updateViaCache: "none" }).catch(()=>{});
   fillNetworkPrice();
   setupInstallPrompt();
 }

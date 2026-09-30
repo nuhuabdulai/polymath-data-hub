@@ -2565,7 +2565,24 @@ app.post("/api/order", rateLimit(LIMIT_WINDOW, ORDER_MAX), async (req, res) => {
 
 
 app.post("/api/order/track", rateLimit(60 * 1000, 10), (req, res) => {
-  const code = String((req.body && req.body.code) || "").trim().toUpperCase();
+  const raw = String((req.body && req.body.code) || "").trim().toUpperCase();
+  /* Customers were shown the ORDER REF as the headline of their confirmation and the
+     PD- code as small print, so they pasted the ref and were told it was invalid.
+     Refusing the ref only taught them our own screen had given them the wrong
+     thing, so it is accepted here WITH the last 4 digits of the beneficiary
+     number - the same second factor the legacy lookup already required. The PD- code
+     stays the one-field path; a bare ref on its own is not enough, because refs are
+     partly timestamp-derived and must not be guessable. */
+  const last4 = String((req.body && req.body.phone) || "").replace(/\D/g, "").slice(-4);
+  if (/^YB[A-Z0-9]{8,}$/.test(raw)) {
+    if (last4.length !== 4) {
+      return res.status(400).json({ error: "That is an order ref, not a tracking code. Add the last 4 digits of the number the data goes to, or use the PD- tracking code from your confirmation.", needsLast4: true });
+    }
+    const hit = loadOrders().find((o) => o.id === raw && String(o.phone || "").replace(/\D/g, "").slice(-4) === last4);
+    if (!hit) return res.status(404).json({ error: "No order matches that ref and those last 4 digits." });
+    return res.json(trackingOrder(hit));
+  }
+  const code = raw;
   if (!/^PD-[A-F0-9]{10}$/.test(code)) return res.status(400).json({ error: "Enter the tracking code from your order confirmation." });
   const order = loadOrders().find((o) => String(o.trackCode || "").toUpperCase() === code);
   if (!order) return res.status(404).json({ error: "No order matches that tracking code." });
