@@ -336,7 +336,17 @@ const ORDER_MAX = Number(cfg("ORDER_RATE_MAX", "5"));
 const rateLimit = (winMs, max, opts) => (req, res, next) => {
   const now = Date.now();
   const ip = req.ip || "?";
-  const key = (opts && opts.key) || ip;
+  /* Scope every bucket to one route family AND one budget, not just the IP.
+     Keyed by IP alone, all endpoints shared one pool: a customer placing five
+     orders burned the admin login's budget from the same address, and behind a
+     carrier-grade NAT (most Ghanaian mobile data) dozens of real customers
+     exhaust one shared pool together — the store 429s for everyone at once.
+     The family comes from the path prefix so parameterised routes (/orders/:id)
+     cannot be fanned out into fresh buckets. */
+  const family = (opts && opts.scope)
+    || ((/^\/api\/(admin|order|wallet|auth|account|idatagh|whatsapp)/.exec(req.originalUrl || req.url || "") || [])[1])
+    || "other";
+  const key = `${family}:${winMs}:${max}:${(opts && opts.key) || ip}`;
   const list = (hits.get(key) || []).filter((t) => t > now - winMs);
   if (list.length >= max) {
     res.set("Retry-After", String(Math.ceil(winMs / 1000)));
