@@ -38,3 +38,5 @@ jobs:
         run: node test/admin-shell.js
       - name: Wallet spend race and stale save (source-order gates)
         run: node test/wallet-safety.js
+      - name: Number-lockout denial of service (13 checks)
+        run: node test/number-lockout-safety.js

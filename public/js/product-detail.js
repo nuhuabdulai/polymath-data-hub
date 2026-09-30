@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function esc(s){return String(s??"").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,"").replace(/[&<>"']/g,c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function fmt(n){return Number(n).toLocaleString("en-GH",{minimumFractionDigits:2,maximumFractionDigits:2})}
 function humanSize(mb){ const v=Number(mb); if(!v) return ""; return v>=1024 ? `${(v/1024).toFixed(v%1024?1:0)}GB` : `${v}MB`; }
 (async function(){

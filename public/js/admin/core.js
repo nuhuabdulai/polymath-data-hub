@@ -28,7 +28,7 @@ const ownerIsEditing = () => {
 const canPollOrders = () =>
   ordersLive && dashTab === "orders" && !document.hidden && !ownerIsEditing() && Date.now() >= ARMED_UNTIL;
 
-function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function esc(s){return String(s??"").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,"").replace(/[&<>"']/g,c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function fmt(n) { return Number(n || 0).toLocaleString("en-GH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 const ORDER_STATUS_LABEL = { pending: "Pending payment", pending_payment: "Awaiting payment", paid: "Paid, processing", processing: "Processing", delivered: "Delivered", failed: "Failed", refunded: "Refunded", cancelled: "Cancelled" };
 

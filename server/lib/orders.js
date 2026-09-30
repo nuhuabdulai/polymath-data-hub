@@ -19,14 +19,40 @@ function ensureTrackCodes() {
   if (changed) saveOrders(orders);
 }
 
-const OPEN_STATUSES = ["pending", "pending_payment", "paid", "processing"];
+/* Statuses that can block a further order for the same number.
+
+   An UNPAID order is deliberately NOT here. This rule exists for one reason:
+   iDATA rejects a second order for the same number in the same period and gives
+   NO refund for the rejected one. An order that has never been paid was never
+   sent to iDATA, so it cannot trigger that rejection.
+
+   Including "pending" made the rule a free denial-of-service against your own
+   customers. Anyone could post a guest manual order for a victim's number - no
+   payment needed - which blocked that number for 30 minutes, and refresh it every
+   30 minutes indefinitely. The 24-hour unpaid expiry never helped, because the
+   attacker kept replacing the order. A competitor, or anyone with a grudge, could
+   take any phone number out of the shop for free.
+
+   Requiring a payment signal makes the attack stop being free. Once the order is
+   refused, blocking the number would cost the attacker real money, at which point
+   the block is legitimate: iDATA really would reject a second order. The unpaid
+   order still exists and is still visible in the admin - it simply does not hold
+   the number hostage while nobody has paid. */
+const OPEN_STATUSES = ["paid", "processing"];
+
+/* A card payment that has not fully resolved still counts, because the money HAS
+   been taken and the supplier may already hold the order. */
+const PAID_OPEN_STATUSES = ["pending_payment", ...OPEN_STATUSES];
+function orderBlocksNumber(o) {
+  return PAID_OPEN_STATUSES.includes(o.status) || Boolean(o.paystackRef) || Boolean(o.verifiedAt);
+}
 
 const SAME_NUMBER_WINDOW_MS = 30 * 60 * 1000;
 
 function recentOrderForNumber(digits, windowMs) {
   const now = Date.now();
   return loadOrders()
-    .filter((o) => o.phone === digits && OPEN_STATUSES.includes(o.status))
+    .filter((o) => o.phone === digits && orderBlocksNumber(o))
     .filter((o) => now - new Date(o.created).getTime() < (windowMs || SAME_NUMBER_WINDOW_MS))
     .sort((a, b) => new Date(b.created) - new Date(a.created))[0] || null;
 }
@@ -234,4 +260,4 @@ function startOrderJobs() {
   setTimeout(watchStuckOrders, 60 * 1000).unref();
 }
 
-module.exports = { ensureTrackCodes, OPEN_STATUSES, SAME_NUMBER_WINDOW_MS, recentOrderForNumber, validatedDupes, expireUnpaid, expireAbandonedTopups, STUCK_AFTER_MS, REPORT_WITHIN_MS, watchStuckOrders, mintTrackCode, newOrder, applyProviderResult, PROGRESS_STEPS, orderProgress, publicOrder, trackingOrder, TERMS_VERSION, requireTermsAgreed, startOrderJobs };
+module.exports = { ensureTrackCodes, OPEN_STATUSES, orderBlocksNumber, SAME_NUMBER_WINDOW_MS, recentOrderForNumber, validatedDupes, expireUnpaid, expireAbandonedTopups, STUCK_AFTER_MS, REPORT_WITHIN_MS, watchStuckOrders, mintTrackCode, newOrder, applyProviderResult, PROGRESS_STEPS, orderProgress, publicOrder, trackingOrder, TERMS_VERSION, requireTermsAgreed, startOrderJobs };

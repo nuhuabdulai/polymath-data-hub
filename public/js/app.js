@@ -21,7 +21,7 @@ function showOrderError(msg) {
   if (error) error.textContent = String(msg || "We could not place this order.");
   toast(msg, true, 6000);
 }
-function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function esc(s){return String(s??"").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,"").replace(/[&<>"']/g,c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function progressHtml(progress) {
   if (!progress || !Array.isArray(progress.steps)) return "";
   return `<div class="progress-track" role="list" aria-label="Order progress">${progress.steps.map((step) => `<div class="progress-step ${esc(step.state)}" role="listitem"><span class="progress-dot" aria-hidden="true">${step.state === "complete" ? "✓" : step.state === "current" ? "•" : ""}</span><span>${esc(step.label)}</span></div>`).join("")}</div><p class="progress-label">${esc(progress.label || "")}</p>`;

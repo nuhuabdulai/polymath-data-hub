@@ -1,5 +1,5 @@
 const $ = (s, r = document) => r.querySelector(s);
-function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function esc(s){return String(s??"").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,"").replace(/[&<>"']/g,c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function fmt(n) { return Number(n).toLocaleString("en-GH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function toast(msg, isErr) {
   let t = $("#toast"); if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; document.body.appendChild(t); }
