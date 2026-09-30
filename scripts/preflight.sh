@@ -109,6 +109,19 @@ else
 fi
 
 echo
+echo "== 6. page structure (structured data, prices, sitemap)"
+if [ -f scripts/check-seo.js ]; then
+  if out=$(node scripts/check-seo.js 2>&1); then
+    good "FAQ data matches the pages, no hard-coded prices, sitemap agrees with noindex"
+  else
+    printf '%s\n' "$out" | sed 's/^/        /'
+    bad "page structure check failed — see the lines above"
+  fi
+else
+  printf '  note  scripts/check-seo.js is missing — skipping the structure gate\n'
+fi
+
+echo
 if [ "$fail" -eq 0 ]; then
   echo "preflight PASSED — safe to restart"
 else

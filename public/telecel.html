@@ -16,6 +16,7 @@
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="theme-color" content="#7b2ff7" />
 <link rel="stylesheet" href="/css/style.css?v=68" />
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How fast is Telecel delivery?","acceptedAnswer":{"@type":"Answer","text":"Usually minutes. When the Telecel network is congested it can take longer. Check the live status banner on this page, and track your order with the reference we send you."}},{"@type":"Question","name":"Can I buy a Telecel bundle for someone else?","acceptedAnswer":{"@type":"Answer","text":"Yes. Enter any valid Telecel beneficiary number at checkout."}},{"@type":"Question","name":"Which Telecel numbers can receive these bundles?","acceptedAnswer":{"@type":"Answer","text":"Standard Telecel prepaid numbers on 020 and 050, including numbers ported in from other networks. Broadband and corporate Telecel SIMs are not eligible."}},{"@type":"Question","name":"Does a ported number still work?","acceptedAnswer":{"@type":"Answer","text":"Yes, but a ported number keeps its original prefix, so it will look like the network it came from. Always choose the bundle for the network the SIM is currently on."}}]}</script>
 </head>
 <body data-network="Telecel">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -31,7 +32,7 @@
   <div class="wrap"><div class="hero-grid"><div class="hero-copy">
     <span class="pill">Telecel · formerly Vodafone</span>
     <h1>Cheap <span class="grad">Telecel data</span>, delivered automatically.</h1>
-    <p>Telecel bundles from low member prices. Pick a size, enter the number, pay online, and the data is sent automatically. Works for Telecel and ported numbers.</p>
+    <p id="netFromPrice" hidden style="font-weight:700;color:var(--brand-dark);margin:0 0 4px"></p><p>Pick a size, enter the number, pay online, and the data is sent automatically. Works for standard Telecel numbers, ported numbers and most prepaid SIMs.</p>
     <div class="hero-actions"><a class="btn btn-primary btn-lg" href="#shop">Shop Telecel bundles</a><button type="button" class="btn btn-ghost btn-lg" id="heroTrack">Track order</button></div>
   </div><div class="hero-card"><div class="mock-card" id="heroCard"><span class="m-net">Loading…</span><strong>…</strong><span class="m-price">…</span><span class="m-tag">Telecel member price</span><button type="button" tabindex="-1">Order now</button></div></div></div></div>
 </section>
@@ -49,6 +50,11 @@
       <h2>Telecel bundles without the queue</h2>
       <p>Telecel (formerly Vodafone) bundles are delivered automatically after payment. Member prices are shown first; guests see the guest price struck through and can sign in to save. Most orders arrive within minutes. Double-check the beneficiary number. Wrong numbers cannot be reversed.</p>
       <p>Broadband and corporate Telecel SIMs are not eligible. Ported numbers keep their old prefix, so check the current network before choosing a bundle.</p>
+      <h2>Telecel FAQ</h2>
+      <details class="faq"><summary>How fast is Telecel delivery?</summary><p>Usually minutes. When the Telecel network is congested it can take longer. Check the live status banner on this page, and track your order with the reference we send you.</p></details>
+      <details class="faq"><summary>Can I buy a Telecel bundle for someone else?</summary><p>Yes. Enter any valid Telecel beneficiary number at checkout.</p></details>
+      <details class="faq"><summary>Which Telecel numbers can receive these bundles?</summary><p>Standard Telecel prepaid numbers on 020 and 050, including numbers ported in from other networks. Broadband and corporate Telecel SIMs are not eligible.</p></details>
+      <details class="faq"><summary>Does a ported number still work?</summary><p>Yes, but a ported number keeps its original prefix, so it will look like the network it came from. Always choose the bundle for the network the SIM is currently on.</p></details>
     </div>
   </div></section>
 </main>
@@ -57,7 +63,7 @@
 <div class="buy-bar" id="buyBar" hidden><div class="buy-bar-in"><div class="buy-bar-txt"><b id="buyBarName"></b><span id="buyBarSub"></span></div><button type="button" class="btn btn-primary" id="buyBarGo">BUY NOW</button><button type="button" class="buy-bar-x" id="buyBarX" aria-label="Clear selection">✕</button></div></div>
 <a class="wa-float" id="waFloat" href="#" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp" hidden>💬</a>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/js/app.js?v=55"></script>
+<script src="/js/app.js?v=57"></script>
 <script src="/js/nav.js?v=1"></script>
 </body>
 </html>

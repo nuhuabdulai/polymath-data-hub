@@ -19,7 +19,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       # Cheapest check first: a syntax error is the thing that has taken this shop
       # down before, and it costs nothing to catch it here instead of in production.
-      - name: Preflight (syntax, module exports, dependencies, .env permissions, contrast)
+      - name: Preflight (syntax, module exports, dependencies, .env permissions, contrast, page structure)
         run: bash scripts/preflight.sh
       - name: Refunds, cancels and sessions (42 checks)
         run: node test/refund-safety.js

@@ -155,7 +155,11 @@ async function load() {
     // share button
     const shareBtn = $("#shareBtn");
     if (shareBtn) shareBtn.addEventListener("click", () => {
-      const text = `Cheap data bundles at ${location.origin}. MTN from GHS ${fmt((state.products.find(p=>p.network==="MTN")||{}).memberPrice||4.77)}!`;
+      const mtnCheapest = state.products.filter(p => p.network === "MTN" && p.memberPrice)
+        .reduce((a, p) => (a === null || p.memberPrice < a ? p.memberPrice : a), null);
+      const text = mtnCheapest
+        ? `Cheap data bundles at ${location.origin}. MTN from GHS ${fmt(mtnCheapest)}!`
+        : `Cheap MTN, Telecel and AirtelTigo data bundles at ${location.origin}.`;
       const url = `https://wa.me/?text=${encodeURIComponent(text + " " + location.origin)}`;
       window.open(url, "_blank");
     });
@@ -655,7 +659,25 @@ function closeModal() { const m = $("#orderModal"); m.classList.remove("open"); 
   window.addEventListener("hashchange", () => { if (location.hash === "#track") openTrack(""); });
   if (qp.get("ref")) try { localStorage.setItem("pending_ref", qp.get("ref")); } catch {}
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=74", { updateViaCache: "none" }).catch(()=>{});
+  fillNetworkPrice();
   setupInstallPrompt();
+}
+
+/* The network landing pages (/mtn, /telecel, /airteltigo) each carry a hero line
+   stating the cheapest bundle currently on sale. It is filled from the live catalogue
+   so it can never contradict the prices on the page, and it stays hidden if the fetch
+   failed rather than showing a number we cannot stand behind. */
+function fillNetworkPrice() {
+  const el = document.getElementById("netFromPrice");
+  if (!el) return;
+  const net = (document.body.dataset.network || "").trim();
+  if (!net) return;
+  const cheapest = state.products
+    .filter((p) => p.network === net && Number(p.memberPrice) > 0)
+    .sort((a, b) => a.memberPrice - b.memberPrice)[0];
+  if (!cheapest) return;
+  el.textContent = `Cheapest right now: GHS ${fmt(cheapest.memberPrice)} for ${humanSize(cheapest.sizeMb)}.`;
+  el.hidden = false;
 }
 
 /* PWA install: catch the browser prompt and offer a button. Never nag after dismissal. */
