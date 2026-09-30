@@ -81,13 +81,18 @@ const orderRefs = (o) => {
    rank 0 = needs you   rank 1 = waiting on the network   rank 2 = done */
 function orderTriage(o) {
   if (o.status === "delivered") return { rank: 2, flag: null };
-  if (o.status === "cancelled" || o.status === "refunded") return { rank: 2, flag: null };
+  if (o.status === "refunded") return { rank: 2, flag: null };
+  /* Refund-owed must outrank the "cancelled is finished" rule below it: a cancel
+     that took the customer's money stays on the queue until the money goes back.
+     Checked in the wrong order, the owner's triage chip read "0 refunds owed"
+     while a paid cancellation sat in the table looking done. */
+  if (o.refundOwed || o.refundStatus === "failed") return { rank: 0, flag: "refund" };
+  if (o.status === "cancelled") return { rank: 2, flag: null };
   /* A send claim with no supplier reference is the one state nobody else will ever
      report: the customer may have nothing, and only the owner can ask the supplier
      and decide. It outranks everything except a refund already owed. */
   const claimed = !o.providerRef && Boolean(o.sendClaimedAt || o.autoSendTriedAt);
   const nothingSent = !o.providerRef && !(Number(o.sendAttempts) > 0) && !o.autoSendTriedAt && !o.sendClaimedAt;
-  if (o.refundOwed || o.refundStatus === "failed") return { rank: 0, flag: "refund" };
   if (claimed && ["paid", "processing", "failed"].includes(o.status)) return { rank: 0, flag: "claim" };
   if (o.status === "processing" && nothingSent) return { rank: 0, flag: "stuck" };
   if (o.status === "paid" && nothingSent) return { rank: 0, flag: "send" };
