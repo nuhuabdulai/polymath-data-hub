@@ -7,7 +7,7 @@
 <title>Admin | POLYMATH DATA HUB</title>
 <meta name="robots" content="noindex,nofollow" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📶</text></svg>" />
-<link rel="stylesheet" href="/css/style.css?v=71" />
+<link rel="stylesheet" href="/css/style.css?v=72" />
 </head>
 <body class="admin-body">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -70,18 +70,12 @@
       <!-- Configuration that changes what the site actually does (mock supplier,
            refused webhook updates). Hidden unless one of them is wrong. -->
       <div class="feature" id="cfgWarn" hidden style="border-color:#b91c1c;color:#b91c1c"></div>
-      <div class="admin-tabs" role="tablist">
-        <button type="button" class="admin-tab active" data-tab="orders">Orders</button>
-        <button type="button" class="admin-tab" data-tab="users">Customers</button>
-        <button type="button" class="admin-tab" data-tab="topups">Top-ups</button>
-        <button type="button" class="admin-tab" data-tab="logs">Logs</button>
-        <button type="button" class="admin-tab" data-tab="messaging">Messaging</button>
-        <button type="button" class="admin-tab" data-tab="status">Status</button>
-        <button type="button" class="admin-tab" data-tab="pricing">Pricing</button>
-        <button type="button" class="admin-tab" data-tab="sales">Sales</button>
-      </div>
+      <!-- The tab buttons are built by admin.js from the TABS registry, grouped
+           Queues / Settings / Reports. Keep this empty: listing buttons here as
+           well is how the tab list used to exist in three drifting places. -->
+      <div class="admin-tabs" id="adminTabs"></div>
         <p class="dim" id="feed"></p>
-        <section id="ordersView">
+        <section id="ordersView" role="tabpanel" aria-labelledby="tab-orders" tabindex="0">
           <details class="admin-help" id="ordersHow">
             <summary>How to approve an order</summary>
             <p><b>Pending payment</b> means a customer paid by MoMo or cash and sent you proof: once you have the money press <b>Mark paid &amp; send</b> and the data goes out at once. <b>Card payment not confirmed</b> means their card never went through, so ask them to pay by MoMo and then press <b>Mark paid &amp; send (they paid another way)</b>. Card payments that work confirm themselves, so leave those alone. <b>Nobody paid?</b> Press <b>Cancel</b>; it works on both unpaid states, anything unpaid for 24 hours clears itself, and an order that is <b>In progress</b> or <b>Delivered</b> can no longer be cancelled.</p>
@@ -116,16 +110,28 @@
           </table>
         </div>
       </section>
-      <section id="usersView" hidden></section>
-      <section id="topupsView" hidden></section>
-      <section id="logsView" hidden></section>
-      <section id="messagingView" hidden></section>
-      <section id="statusView" hidden></section>
-      <section id="pricingView" hidden></section>
-      <section id="salesView" hidden></section>
+      <section id="usersView" role="tabpanel" aria-labelledby="tab-users" tabindex="0" hidden></section>
+      <section id="topupsView" role="tabpanel" aria-labelledby="tab-topups" tabindex="0" hidden></section>
+      <section id="logsView" role="tabpanel" aria-labelledby="tab-logs" tabindex="0" hidden></section>
+      <section id="messagingView" role="tabpanel" aria-labelledby="tab-messaging" tabindex="0" hidden></section>
+      <section id="statusView" role="tabpanel" aria-labelledby="tab-status" tabindex="0" hidden></section>
+      <section id="pricingView" role="tabpanel" aria-labelledby="tab-pricing" tabindex="0" hidden></section>
+      <section id="salesView" role="tabpanel" aria-labelledby="tab-sales" tabindex="0" hidden></section>
     </main>
   </div>
 
-<script src="/js/admin.js?v=50"></script>
+<!-- Split admin scripts: core helpers, then the shell (login/header), one file
+     per tab, and the orchestrator (tab registry) last. Classic scripts sharing
+     globals, so this order matters: core first, admin.js last. -->
+<script src="/js/admin/core.js?v=51"></script>
+<script src="/js/admin/shell.js?v=51"></script>
+<script src="/js/admin/orders.js?v=51"></script>
+<script src="/js/admin/customers.js?v=51"></script>
+<script src="/js/admin/topups.js?v=51"></script>
+<script src="/js/admin/pricing.js?v=51"></script>
+<script src="/js/admin/status.js?v=51"></script>
+<script src="/js/admin/messaging.js?v=51"></script>
+<script src="/js/admin/reports.js?v=51"></script>
+<script src="/js/admin.js?v=51"></script>
 </body>
 </html>
