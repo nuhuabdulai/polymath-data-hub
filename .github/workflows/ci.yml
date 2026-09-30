@@ -36,3 +36,5 @@ jobs:
         run: node test/unconfigured-supplier-safety.js
       - name: Admin shell (tabs, keyboard navigation, data loading)
         run: node test/admin-shell.js
+      - name: Wallet spend race and stale save (source-order gates)
+        run: node test/wallet-safety.js
