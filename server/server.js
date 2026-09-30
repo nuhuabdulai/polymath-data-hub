@@ -2292,6 +2292,12 @@ function servePage(res, file) {
    else to the static handler (which sets the one-year immutable cache on assets). */
 app.get(["/", "/index.html"], (req, res) => servePage(res, "index.html"));
 
+/* /shop was linked from the product page's main navigation and had no route at all,
+   so the first thing a visitor clicked on the page where they decide to buy was a 404.
+   The homepage IS the shop ("Pick your bundle"), so this is a permanent redirect rather
+   than a second page to keep in sync. */
+app.get("/shop", (req, res) => res.redirect(301, "/"));
+
 /* Same substitution for the two files crawlers read. Registered here, above
    express.static, because static would serve them first and the sitemap would keep
    advertising the placeholder domain. */
