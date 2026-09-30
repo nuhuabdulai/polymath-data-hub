@@ -1,0 +1,27 @@
+# The gate. Both suites run against stubs — no network, no real supplier, no real
+# Paystack — so they are safe to run on every push.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+      # Cheapest check first: a syntax error is the thing that has taken this shop
+      # down before, and it costs nothing to catch it here instead of in production.
+      - name: Preflight (syntax, module exports, dependencies, .env permissions, contrast, page structure)
+        run: bash scripts/preflight.sh
+      - name: Refunds, cancels and sessions (42 checks)
+        run: node test/refund-safety.js
+      - name: Can one payment buy two bundles? (18 checks)
+        run: node test/supplier-send-safety.js

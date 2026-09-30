@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta name="theme-color" content="#0e7490" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Admin | POLYMATH DATA HUB</title>
 <meta name="robots" content="noindex,nofollow" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📶</text></svg>" />
-<link rel="stylesheet" href="/css/style.css?v=70" />
+<link rel="stylesheet" href="/css/style.css?v=71" />
 </head>
 <body class="admin-body">
+<a class="skip-link" href="#main">Skip to content</a>
   <!-- Login view -->
   <div id="loginView" class="auth-panel" hidden>
     <h1>POLYMATH DATA HUB</h1>
@@ -45,7 +47,7 @@
       </div>
       <div class="pw-panel" id="pwPanel" hidden>
         <div class="wrap" style="padding:16px 24px">
-          <h3 style="font-size:15px;margin:0 0 10px">Change admin password</h3>
+          <h2 style="font-size:15px;margin:0 0 10px">Change admin password</h2>
           <div class="pw-grid">
             <div class="field"><label for="pwCur">Current password</label><input id="pwCur" type="password" autocomplete="current-password" maxlength="128" /></div>
             <div class="field"><label for="pwNew">New password</label><input id="pwNew" type="password" autocomplete="new-password" maxlength="128" /></div>
@@ -58,12 +60,12 @@
     </header>
     <div class="admin-alerts" id="alertBar" hidden>
       <div class="wrap alert-body">
-        <h4>⚠ Needs your attention</h4>
+        <h2>⚠ Needs your attention</h2>
         <ul id="alertList"></ul>
         <button type="button" class="link-btn" id="alertClear">Mark as read</button>
       </div>
     </div>
-    <main class="wrap-wide" style="padding:28px 24px 64px">
+    <main id="main" class="wrap-wide" style="padding:28px 24px 64px">
       <div class="grid-features" id="stats"></div>
       <!-- Configuration that changes what the site actually does (mock supplier,
            refused webhook updates). Hidden unless one of them is wrong. -->

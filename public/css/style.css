@@ -1,13 +1,29 @@
 :root {
+  /* No dark theme: a 1,300-line stylesheet with hard-coded colours would need a real
+     palette pass, not an audit fix. This keeps the light theme authoritative instead of
+     letting the browser half-invert form controls and scrollbars on a dark-mode phone. */
+  color-scheme: light;
   --bg: #f4f6f9;
   --ink: #0f172a;
-  --muted: #64748b;
+  --muted: #556074;      /* 5.86:1 on --bg, 6.34:1 on white: AA for small text */
   --panel: #ffffff;
   --line: #e2e8f0;
   --brand: #0891b2;
   --brand2: #0d9488;
   --brand-dark: #0e7490;
+  /* Button gradients get their own stops. White on the decorative brand teal
+     (#0d9488) is 3.74:1, which is fine for a shape and not for a 14px label, so the
+     button pair is measured to pass AA (5.36:1 and 5.47:1 with white). */
+  --btn-from: #0e7490;
+  --btn-to: #0f766e;
+  /* The same teal for SOLID fills under white text (badges, pills, active tabs). */
+  --brand-ink: #0f766e;
+  /* Keyboard focus. Solid and measured: 5.36:1 on white, 3.33:1 on the dark footer. */
+  --focus-ring: #0e7490;
   --wa: #25d366;
+  /* Dark green ink, not white, on the WhatsApp green: white measured 1.98:1, this is
+     6.38:1. Same reasoning as the gradient stops above. */
+  --wa-ink: #0b3b1e;
   --radius: 14px;
   --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 6px 24px rgba(15, 23, 42, 0.06);
   --shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.08), 0 20px 48px rgba(15, 23, 42, 0.10);
@@ -38,7 +54,7 @@ img { max-width: 100%; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; letter-spacing: -0.3px; }
 .brand-mark {
   width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff; font-size: 12px;
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to)); color: #fff; font-size: 12px;
   font-weight: 900; letter-spacing: 0.5px;
 }
 .brand-name em { font-style: normal; color: var(--brand-dark); }
@@ -71,14 +87,20 @@ img { max-width: 100%; }
 }
 .btn:hover { transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
+/* The primary action is the one thing on the page that must never be hard to read.
+   White text on the decorative brand teal (--brand #0891b2, 3.68:1) only passes as
+   large text and this label is 14px, so the gradient runs between two measured stops:
+   --btn-from #0e7490 (5.36:1 with white) and --btn-to #0f766e (5.47:1 with white). */
 .btn-primary {
-  background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff;
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to)); color: #fff;
   box-shadow: 0 2px 8px rgba(8, 145, 178, 0.30), 0 0 0 0 rgba(8, 145, 178, 0);
 }
 .btn-primary:hover { box-shadow: 0 4px 16px rgba(8, 145, 178, 0.35), 0 0 0 3px rgba(8, 145, 178, 0.08); }
 .btn-ghost { background: #fff; border-color: var(--line); color: var(--ink); }
 .btn-ghost:hover { border-color: #cbd5e1; }
-.btn-whatsapp { background: var(--wa); color: #fff; font-size: 13px; padding: 8px 16px; }
+/* White on the WhatsApp green measures 1.98:1 — the worst pair on the site. Dark ink
+   on the same green is 6.38:1 and still reads as WhatsApp. */
+.btn-whatsapp { background: var(--wa); color: var(--wa-ink); font-size: 13px; padding: 8px 16px; }
 .btn-light { background: #fff; color: var(--ink); }
 .nav-toggle { display: none; background: none; border: 0; font-size: 20px; cursor: pointer; color: var(--ink); padding: 12px; margin: -12px; }
 
@@ -126,7 +148,7 @@ img { max-width: 100%; }
 .m-tag { font-size: 11px; color: #94a3b8; }
 .mock-card button {
   margin-top: 12px; border: 0; border-radius: 10px; padding: 11px;
-  background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff;
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to)); color: #fff;
   font-weight: 700; font-size: 14px; cursor: default;
 }
 
@@ -188,7 +210,7 @@ img { max-width: 100%; }
 .step:hover { box-shadow: var(--shadow); }
 .step b {
   display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px;
-  background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff;
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to)); color: #fff;
   font-size: 16px; font-weight: 800; margin-bottom: 14px;
 }
 .step h3 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
@@ -214,7 +236,7 @@ img { max-width: 100%; }
 
 /* CTA */
 .cta {
-  background: linear-gradient(135deg, #0e7490, #0d9488);
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to));
   color: #fff; text-align: center; padding: 64px 0;
 }
 .cta h2 { margin: 0 0 8px; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
@@ -224,7 +246,7 @@ img { max-width: 100%; }
 .site-footer { background: #0f172a; color: #94a3b8; padding: 48px 0 24px; }
 .footer-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 32px; }
 .site-footer .brand-name { color: #fff; font-weight: 800; font-size: 17px; }
-.site-footer h4 { color: #e2e8f0; margin: 0 0 12px; font-size: 14px; font-weight: 700; }
+.site-footer h2 { color: #e2e8f0; margin: 0 0 12px; font-size: 14px; font-weight: 700; }
 .footer-grid a, .site-footer p { display: block; margin: 6px 0; color: #94a3b8; font-size: 14px; }
 .footer-grid a { transition: color 0.12s; }
 .footer-grid a:hover { color: var(--brand); }
@@ -270,7 +292,7 @@ img { max-width: 100%; }
   margin-top: 8px; padding-top: 10px;
 }
 .pay-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
-.btn-pay { background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff; }
+.btn-pay { background: linear-gradient(135deg, var(--btn-from), var(--btn-to)); color: #fff; }
 .btn-manual {
   background: #fff; border: 1.5px solid var(--line); font-weight: 700; padding: 12px 20px;
   border-radius: 10px; cursor: pointer; font-size: 14px; transition: border-color 0.12s;
@@ -387,7 +409,12 @@ img { max-width: 100%; }
 
 /* v4 additions: conversion-first UX overhaul */
 html, body { overflow-x: hidden; }
-*:focus-visible { outline: 3px solid rgba(8, 145, 178, 0.45); outline-offset: 2px; border-radius: 6px; }
+/* Focus ring. The old one was a 45%-opacity teal that measured 1.75:1 on white —
+   visible in a design review, invisible to someone actually tabbing. This is a solid
+   ring (5.36:1 on white, 3.33:1 on the dark hero and footer) with a thin halo so it
+   still stands out when it lands on a coloured button. */
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.85); }
+@media (prefers-color-scheme: dark) { :focus-visible { box-shadow: 0 0 0 5px rgba(11, 18, 32, 0.85); } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
@@ -432,15 +459,15 @@ html, body { overflow-x: hidden; }
 .admin-alerts { background: #fef3c7; border-bottom: 1px solid #fcd34d; }
 .admin-alerts[hidden] { display: none; }
 .admin-alerts .alert-body { padding: 12px 24px; }
-.admin-alerts h4 { margin: 0 0 6px; font-size: 14px; }
+.admin-alerts h2 { margin: 0 0 6px; font-size: 14px; }
 .admin-alerts ul { margin: 6px 0 0; padding-left: 18px; }
 .admin-alerts li { font-size: 13px; margin-bottom: 3px; }
 .admin-alerts .sec { color: #b91c1c; font-weight: 700; }
-.install-btn { display: inline-flex; align-items: center; gap: 8px; margin: 14px 0 4px; padding: 11px 18px; border: 1px solid #0e7490; border-radius: 999px; background: #fff; color: #0e7490; font: 700 14px/1 inherit; font-family: inherit; cursor: pointer; }
+.install-btn { display: inline-flex; align-items: center; gap: 8px; margin: 14px 0 4px; padding: 11px 18px; border: 1px solid var(--brand-dark); border-radius: 999px; background: #fff; color: var(--brand-dark); font: 700 14px/1 inherit; font-family: inherit; cursor: pointer; }
 .install-btn[hidden] { display: none; }
 .install-btn:active { transform: scale(.98); }
 #boNumbers { width: 100%; min-height: 110px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; font: 400 16px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #fff; color: var(--ink); resize: vertical; }
-#boNumbers:focus { outline: 2px solid #0e7490; outline-offset: 1px; }
+#boNumbers:focus { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 #boPlan { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; font: 400 16px/1 inherit; background: #fff; color: var(--ink); }
 .plan-valid { font-size: 12px; }
 .plan-card .buy-btn { padding: 12px 14px; }
@@ -486,7 +513,7 @@ body.has-buy-bar .wa-float { bottom: 84px; }
 body:has(.buy-bar:not([hidden])) main { padding-bottom: 90px; }
 
 /* floating whatsapp (mobile) */
-.wa-float { position: fixed; right: 16px; bottom: 16px; z-index: 90; width: 54px; height: 54px; border-radius: 50%; background: #25d366; color: #fff; display: grid; place-items: center; font-size: 26px; box-shadow: 0 4px 16px rgba(37, 211, 102, 0.35); transition: transform 0.12s; }
+.wa-float { position: fixed; right: 16px; bottom: 16px; z-index: 90; width: 54px; height: 54px; border-radius: 50%; background: var(--wa); color: var(--wa-ink); display: grid; place-items: center; font-size: 26px; box-shadow: 0 4px 16px rgba(37, 211, 102, 0.35); transition: transform 0.12s; }
 .wa-float:hover { transform: scale(1.06); }
 .wa-float[hidden] { display: none; }
 
@@ -541,7 +568,7 @@ body:has(.buy-bar:not([hidden])) main { padding-bottom: 90px; }
 .choice-cards { display: grid; gap: 12px; margin: 16px 0; }
 .choice-card { background: #fff; border: 1.5px solid var(--line); border-radius: 12px; padding: 16px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color .15s, box-shadow .15s; }
 .choice-card:hover { border-color: #cbd5e1; }
-.choice-card.primary { background: linear-gradient(135deg, #0e7490, #0d9488); color: #fff; border-color: transparent; }
+.choice-card.primary { background: linear-gradient(135deg, var(--btn-from), var(--btn-to)); color: #fff; border-color: transparent; }
 .choice-card.primary:hover { box-shadow: 0 4px 16px rgba(13,148,136,.25); }
 .choice-title { font-weight: 800; font-size: 16px; }
 .choice-sub { font-size: 13px; opacity: .85; }
@@ -570,7 +597,7 @@ body:has(.buy-bar:not([hidden])) main { padding-bottom: 90px; }
   .site-footer { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 }
 /* Account: polish (less basic) */
-.acc-hero { background: linear-gradient(135deg, #0e7490 0%, #0d9488 100%); color: #fff; border-radius: 18px; padding: 22px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 8px 0 20px; box-shadow: 0 8px 24px rgba(13,148,136,.18); }
+.acc-hero { background: linear-gradient(135deg, var(--btn-from) 0%, var(--btn-to) 100%); color: #fff; border-radius: 18px; padding: 22px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 8px 0 20px; box-shadow: 0 8px 24px rgba(13,148,136,.18); }
 .acc-hero h1 { color: #fff; font-size: 22px; margin: 0; }
 .acc-hero p { color: rgba(255,255,255,.85); margin: 4px 0 0; font-size: 13px; }
 .acc-hero .wallet-badge { background: rgba(255,255,255,.15); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.2); border-radius: 14px; padding: 14px 18px; text-align: right; min-width: 140px; }
@@ -589,6 +616,16 @@ body:has(.buy-bar:not([hidden])) main { padding-bottom: 90px; }
 .acc-err { color: #b91c1c; font-size: 13px; margin: 8px 0 0; min-height: 0; }
 .acc-err:empty { display: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Keyboard-only shortcut past the nav. Every page has one; it is the first tab stop,
+   and it is invisible until it is focused. */
+.skip-link {
+  position: absolute; left: 12px; top: -60px; z-index: 200;
+  background: var(--brand-dark); color: #fff; font-weight: 700;
+  padding: 12px 18px; border-radius: 0 0 10px 10px; text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skip-link:focus { top: 0; }
 .acc-row .sv-label { max-width: 160px; }
 .pill-list { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .pill-x { border: 0; background: none; cursor: pointer; color: var(--muted); font: inherit; line-height: 1; padding: 2px 4px; border-radius: 6px; }
@@ -772,7 +809,7 @@ body:has(.buy-bar:not([hidden])) main { padding-bottom: 90px; }
 .nav-toggle.is-open .nav-bars { background: transparent; }
 .nav-toggle.is-open .nav-bars::before { top: 0; transform: rotate(45deg); }
 .nav-toggle.is-open .nav-bars::after { top: 0; transform: rotate(-45deg); }
-.nav-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.nav-toggle:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 
 .nav-scrim { position: fixed; inset: 60px 0 0 0; background: rgba(15, 23, 42, 0.35);
   opacity: 0; pointer-events: none; transition: opacity 0.18s; z-index: 45; }
@@ -915,7 +952,7 @@ body.nav-open { overflow: hidden; }
   -webkit-tap-highlight-color: transparent; transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .admin-tab:hover { border-color: #cbd5e1; color: var(--ink); }
-.admin-tab.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.admin-tab.active { background: var(--brand-ink); border-color: var(--brand-ink); color: #fff; }
 .admin-body .feature h3 { font-size: 13.5px; }
 .admin-body .admin-table th, .admin-body .admin-table td { padding: 10px 12px; }
 
@@ -1028,7 +1065,7 @@ body.nav-open { overflow: hidden; }
 .admin-table tbody tr.is-new { background: #f0fdfa; }
 .admin-table tbody tr.is-new > td:first-child { box-shadow: inset 3px 0 0 #0d9488; }
 .new-pill {
-  display: inline-block; background: #0d9488; color: #fff; border-radius: 999px;
+  display: inline-block; background: var(--brand-ink); color: #fff; border-radius: 999px;
   padding: 1px 7px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
   vertical-align: 2px;
 }
@@ -1201,7 +1238,7 @@ body.nav-open { overflow: hidden; }
 .auth-tab.is-active {
   background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
 }
-.auth-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.auth-tab:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .auth-panel { margin-top: 14px; }
 .auth-panel .field { margin-bottom: 12px; }
 .auth-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; color: var(--muted); }
@@ -1259,7 +1296,7 @@ body.nav-open { overflow: hidden; }
 }
 .app-banner {
   position: relative; padding: 22px 20px; text-align: center;
-  background: linear-gradient(135deg, var(--brand) 0%, var(--brand2) 100%);
+  background: linear-gradient(135deg, var(--btn-from) 0%, var(--btn-to) 100%);
   color: #fff; overflow: hidden;
 }
 .app-banner::before, .app-banner::after {
@@ -1290,7 +1327,7 @@ body.nav-open { overflow: hidden; }
 .app-btn-google { background: #fff; border-color: #dadce0; color: #1a73e8; }
 .app-btn-google:hover { border-color: #b9bdc2; background: #fafafa; }
 .app-btn-primary {
-  background: linear-gradient(135deg, var(--brand), var(--brand2));
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to));
   color: #fff; box-shadow: 0 6px 16px rgba(13, 148, 136, .28);
 }
 .app-btn-primary:hover { box-shadow: 0 8px 20px rgba(13, 148, 136, .34); }

@@ -108,6 +108,37 @@
         statNote.textContent = data.progress && data.progress.label ? data.progress.label : cur[1];
       }
     }
+    showWaitNote(data);
+  }
+
+  /* Shown only while an order is still queuing and has been for a while. It says what
+     is actually true: nothing is stuck, the order is watched, and a queued order is not
+     a failed one. Deliberately makes no promise about when the data will land, because
+     that is the network's call and not ours to guarantee. */
+  const WAIT_AFTER_MS = 30 * 60 * 1000;
+  function showWaitNote(data) {
+    const host = statNote && statNote.parentNode;
+    if (!host) return;
+    let note = document.getElementById("waitNote");
+    const queued = data.status === "paid" || data.status === "processing";
+    const age = Date.now() - new Date(data.created).getTime();
+    if (!queued || !Number.isFinite(age) || age < WAIT_AFTER_MS) {
+      if (note) note.remove();
+      return;
+    }
+    if (!note) {
+      note = document.createElement("p");
+      note.id = "waitNote";
+      note.className = "wait-note";
+      host.insertBefore(note, statNote.nextSibling);
+    }
+    const mins = Math.floor(age / 60000);
+    const waited = mins >= 120 ? `${Math.floor(mins / 60)} hours` : `${mins} minutes`;
+    note.textContent =
+      `This order has been queuing for about ${waited}. That is the network being slow, not a ` +
+      `lost order: it is still in the queue, we are watching it, and we step in by hand if it ` +
+      `stalls. Please do not place it again. If it never arrives we refund it in full - see the ` +
+      `refund policy.`;
   }
 
   function start() {

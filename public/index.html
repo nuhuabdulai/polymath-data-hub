@@ -12,15 +12,16 @@
 <link rel="apple-touch-icon" href="/img/icon-192.png" />
 <link rel="canonical" href="https://bundles.example.com/" />
 <meta property="og:type" content="website" />
-<meta property="og:image" content="/img/og-1200x630.png" />
+<meta property="og:image" content="https://bundles.example.com/img/og-1200x630.png" />
 <meta property="og:url" content="https://bundles.example.com/" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:image" content="/img/og-1200x630.png" />
+<meta name="twitter:image" content="https://bundles.example.com/img/og-1200x630.png" />
 <meta name="theme-color" content="#0e7490" />
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"POLYMATH DATA HUB","url":"https://bundles.example.com","logo":"https://bundles.example.com/img/og-1200x630.png","sameAs":[]}</script>
-<link rel="stylesheet" href="/css/style.css?v=67" />
+<link rel="stylesheet" href="/css/style.css?v=69" />
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="wrap header-inner">
     <a class="brand" href="/">
@@ -56,7 +57,9 @@
           <div><strong>Minutes, not days</strong><span>slow when a network is congested</span></div>
         </div>
       </div>
-      <div class="hero-card" aria-hidden="false">
+      <!-- Decorative: the real catalogue is below. Hidden from assistive tech so the fake
+           "Order now" button inside is not announced as something that works. -->
+      <div class="hero-card" aria-hidden="true">
         <div class="mock-card" id="heroCard">
           <span class="m-net">Loading…</span>
           <strong>…</strong>
@@ -70,7 +73,7 @@
 </section>
 
 <div id="statusBanner" class="status-banner" hidden></div>
-<main>
+<main id="main">
   <section class="section" id="shop">
     <div class="wrap">
       <h2 class="section-title">Pick your bundle</h2>
@@ -128,13 +131,13 @@
   <section class="section section-alt" id="faq">
     <div class="wrap narrow">
       <h2 class="section-title">Frequently asked questions</h2>
-      <details class="faq"><summary>How long does delivery take?</summary><p>Most bundles arrive in a few minutes. But delivery comes from the network, not from us. When a network is congested (MTN is often) an order can take <strong>hours</strong>. We show each network’s live status at the top of this page, we keep retrying automatically, and you can track the status. A slow order is not a failed order, so it is not refunded while it is still queued.</p></details>
+      <details class="faq"><summary>How long does delivery take?</summary><p>Most bundles arrive in a few minutes. But delivery comes from the network, not from us. When a network is congested (MTN is often) an order can take <strong>hours</strong>. We show each network’s live status, we watch every order through to delivery and step in by hand when one stalls, and you can track yours at any time. A slow order is not a failed order, so it is not refunded while it is still queued. If an order never reaches your number, we refund it — see the refund policy.</p></details>
       <details class="faq"><summary>Can I send data to someone else's number?</summary><p>Yes. Enter any valid beneficiary number when you order.</p></details>
       <details class="faq"><summary>I entered the wrong number. Can you reverse it?</summary><p>No. Data sent to a wrong, inactive or newly-activated number is not refundable or reversible. The network treats it the same way. Please double-check the number before you pay.</p></details>
       <details class="faq"><summary>Is every network eligible?</summary><p>No. Shared broadband/Turbonet SIM cards and some special SIM types are not eligible for data bundles. If in doubt, send us a WhatsApp first.</p></details>
       <details class="faq"><summary>Do prefixes always match the network?</summary><p>No. When a number is ported to another network it keeps its old prefix. Check the bundle's network, not just the prefix, and use the confirmation step before paying.</p></details>
       <details class="faq"><summary>How do I check my order?</summary><p>Use the “Track order” button. Enter your order reference and the last 4 digits of the beneficiary number.</p></details>
-      <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How long does delivery take?","acceptedAnswer":{"@type":"Answer","text":"Most bundles arrive in a few minutes. Delivery comes from the network. When a network is congested (MTN is often) an order can take hours. We show each network live status, keep retrying automatically, and you can track the status. A slow order is not a failed order, so it is not refunded while it is still queued."}},{"@type":"Question","name":"Can I send data to someone else's number?","acceptedAnswer":{"@type":"Answer","text":"Yes. Enter any valid beneficiary number when you order."}},{"@type":"Question","name":"I entered the wrong number. Can you reverse it?","acceptedAnswer":{"@type":"Answer","text":"No. Data sent to a wrong number is not refundable or reversible."}}]}</script>
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How long does delivery take?","acceptedAnswer":{"@type":"Answer","text":"Most bundles arrive in a few minutes. But delivery comes from the network, not from us. When a network is congested (MTN is often) an order can take hours. We show each network’s live status, we watch every order through to delivery and step in by hand when one stalls, and you can track yours at any time. A slow order is not a failed order, so it is not refunded while it is still queued. If an order never reaches your number, we refund it — see the refund policy."}},{"@type":"Question","name":"Can I send data to someone else's number?","acceptedAnswer":{"@type":"Answer","text":"Yes. Enter any valid beneficiary number when you order."}},{"@type":"Question","name":"I entered the wrong number. Can you reverse it?","acceptedAnswer":{"@type":"Answer","text":"No. Data sent to a wrong, inactive or newly-activated number is not refundable or reversible. The network treats it the same way. Please double-check the number before you pay."}},{"@type":"Question","name":"Is every network eligible?","acceptedAnswer":{"@type":"Answer","text":"No. Shared broadband/Turbonet SIM cards and some special SIM types are not eligible for data bundles. If in doubt, send us a WhatsApp first."}},{"@type":"Question","name":"Do prefixes always match the network?","acceptedAnswer":{"@type":"Answer","text":"No. When a number is ported to another network it keeps its old prefix. Check the bundle's network, not just the prefix, and use the confirmation step before paying."}},{"@type":"Question","name":"How do I check my order?","acceptedAnswer":{"@type":"Answer","text":"Use the “Track order” button. Enter your order reference and the last 4 digits of the beneficiary number."}}]}</script>
     </div>
   </section>
 
@@ -151,13 +154,13 @@
   <div class="wrap footer-grid">
     <div><span class="brand-name">POLYMATH <em>DATA HUB</em></span><p id="footTag">Cheap data bundles, delivered automatically.</p><p class="dim" id="footLocation">Accra, Ghana</p></div>
     <div>
-      <h4>Contact</h4>
+      <h2>Contact</h2>
       <a id="footWa" href="#" target="_blank" rel="noopener" hidden>WhatsApp</a>
       <span id="footMail"></span>
       <a id="footPhone" href="#" hidden></a>
     </div>
     <div>
-      <h4>Quick links</h4>
+      <h2>Quick links</h2>
       <a href="#shop">Shop</a>
       <a href="/account">My account</a>
       <a href="#faq">FAQ</a>
@@ -167,7 +170,7 @@
       <button type="button" class="link-btn" id="footTrack">Track order</button>
     </div>
   </div>
-  <div class="wrap footer-bottom">© <span id="year"></span> POLYMATH DATA HUB · <a href="https://example.com" rel="noopener">Example Shop</a> · <a href="/sitemap.xml">Sitemap</a></div>
+  <div class="wrap footer-bottom">© <span id="year"></span> POLYMATH DATA HUB · <a href="/sitemap.xml">Sitemap</a></div>
 </footer>
 
 <!-- Order modal -->
@@ -192,7 +195,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="/js/app.js?v=55"></script>
+<script src="/js/app.js?v=57"></script>
 <script src="/js/nav.js?v=1"></script>
 </body>
 </html>

@@ -15,9 +15,11 @@
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="theme-color" content="#e30613" />
-<link rel="stylesheet" href="/css/style.css?v=67" />
+<link rel="stylesheet" href="/css/style.css?v=68" />
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How fast is AirtelTigo delivery?","acceptedAnswer":{"@type":"Answer","text":"Usually minutes. When the network is congested it can take longer. Check the live status banner on this page, and track your order with the reference we send you."}},{"@type":"Question","name":"Can I buy an AirtelTigo bundle for someone else?","acceptedAnswer":{"@type":"Answer","text":"Yes. Enter any valid AirtelTigo beneficiary number at checkout."}},{"@type":"Question","name":"Which AirtelTigo numbers can receive these bundles?","acceptedAnswer":{"@type":"Answer","text":"Standard AirtelTigo prepaid numbers. The checkout recognises 026, 027, 056 and 057, including ported numbers. Some corporate and broadband SIMs are not eligible."}},{"@type":"Question","name":"What if I enter the wrong number?","acceptedAnswer":{"@type":"Answer","text":"Data sent to a wrong or newly activated number cannot be reversed by the carrier, so please check the number before paying. If an order fails on our side, we refund it - see the refund policy."}}]}</script>
 </head>
 <body data-network="AirtelTigo">
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="wrap header-inner">
     <a class="brand" href="/"><span class="brand-mark">PD</span><span class="brand-name">POLYMATH <em>DATA HUB</em></span></a>
@@ -30,12 +32,12 @@
   <div class="wrap"><div class="hero-grid"><div class="hero-copy">
     <span class="pill">AirtelTigo · AT</span>
     <h1>Cheap <span class="grad">AirtelTigo data</span> in Ghana.</h1>
-    <p>AirtelTigo bundles from member prices, with fast automated delivery to any AT number. Choose a size, confirm the number, pay.</p>
+    <p id="netFromPrice" hidden style="font-weight:700;color:var(--brand-dark);margin:0 0 4px"></p><p>Automated delivery to any AT number. Choose a size, confirm the number, pay, and the data is sent for you.</p>
     <div class="hero-actions"><a class="btn btn-primary btn-lg" href="#shop">Shop AirtelTigo bundles</a><button type="button" class="btn btn-ghost btn-lg" id="heroTrack">Track order</button></div>
   </div><div class="hero-card"><div class="mock-card" id="heroCard"><span class="m-net">Loading…</span><strong>…</strong><span class="m-price">…</span><span class="m-tag">AirtelTigo member price</span><button type="button" tabindex="-1">Order now</button></div></div></div></div>
 </section>
 <div id="statusBanner" class="status-banner" hidden></div>
-<main>
+<main id="main">
   <section class="section" id="shop"><div class="wrap">
     <h2 class="section-title">AirtelTigo bundles</h2>
     <p class="section-sub">Filtered to AirtelTigo.</p>
@@ -48,15 +50,20 @@
       <h2>AirtelTigo data, simple</h2>
       <p>AT bundles are delivered automatically after you pay. Member prices are highlighted; guests can verify their phone to get the member price in seconds. Most deliveries complete within minutes. Confirm the beneficiary number. Wrong numbers cannot be reversed.</p>
       <p>Some corporate and broadband AirtelTigo SIMs are not eligible. Ported numbers keep their old prefix.</p>
+      <h2>AirtelTigo FAQ</h2>
+      <details class="faq"><summary>How fast is AirtelTigo delivery?</summary><p>Usually minutes. When the network is congested it can take longer. Check the live status banner on this page, and track your order with the reference we send you.</p></details>
+      <details class="faq"><summary>Can I buy an AirtelTigo bundle for someone else?</summary><p>Yes. Enter any valid AirtelTigo beneficiary number at checkout.</p></details>
+      <details class="faq"><summary>Which AirtelTigo numbers can receive these bundles?</summary><p>Standard AirtelTigo prepaid numbers. The checkout recognises 026, 027, 056 and 057, including ported numbers. Some corporate and broadband SIMs are not eligible.</p></details>
+      <details class="faq"><summary>What if I enter the wrong number?</summary><p>Data sent to a wrong or newly activated number cannot be reversed by the carrier, so please check the number before paying. If an order fails on our side, we refund it - see the refund policy.</p></details>
     </div>
   </div></section>
 </main>
-<footer class="site-footer"><div class="wrap footer-grid"><div><span class="brand-name">POLYMATH <em>DATA HUB</em></span><p id="footTag"></p><p class="dim" id="footLocation">Accra, Ghana</p></div><div><h4>Contact</h4><a id="footWa" href="#" target="_blank" rel="noopener" hidden>WhatsApp</a><span id="footMail"></span><a id="footPhone" href="#" hidden></a></div><div><h4>Quick links</h4><a href="/">Shop</a><a href="/mtn">MTN</a><a href="/privacy">Privacy</a></div></div><div class="wrap footer-bottom">© <span id="year"></span> POLYMATH DATA HUB</div></footer>
+<footer class="site-footer"><div class="wrap footer-grid"><div><span class="brand-name">POLYMATH <em>DATA HUB</em></span><p id="footTag"></p><p class="dim" id="footLocation">Accra, Ghana</p></div><div><h2>Contact</h2><a id="footWa" href="#" target="_blank" rel="noopener" hidden>WhatsApp</a><span id="footMail"></span><a id="footPhone" href="#" hidden></a></div><div><h2>Quick links</h2><a href="/">Shop</a><a href="/mtn">MTN</a><a href="/privacy">Privacy</a></div></div><div class="wrap footer-bottom">© <span id="year"></span> POLYMATH DATA HUB</div></footer>
 <div class="modal" id="orderModal" aria-hidden="true"><div class="modal-box"><button class="modal-x" id="closeModal" aria-label="Close">✕</button><div id="modalInner"></div></div></div>
 <div class="buy-bar" id="buyBar" hidden><div class="buy-bar-in"><div class="buy-bar-txt"><b id="buyBarName"></b><span id="buyBarSub"></span></div><button type="button" class="btn btn-primary" id="buyBarGo">BUY NOW</button><button type="button" class="buy-bar-x" id="buyBarX" aria-label="Clear selection">✕</button></div></div>
 <a class="wa-float" id="waFloat" href="#" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp" hidden>💬</a>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/js/app.js?v=55"></script>
+<script src="/js/app.js?v=57"></script>
 <script src="/js/nav.js?v=1"></script>
 </body>
 </html>
