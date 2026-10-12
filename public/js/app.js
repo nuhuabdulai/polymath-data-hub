@@ -663,7 +663,13 @@ function closeModal() { const m = $("#orderModal"); m.classList.remove("open"); 
 {
   // The mobile menu itself lives in /js/nav.js so every page shares one
   // implementation; here we only need to close it when a track action fires.
-  ["#navTrack", "#heroTrack", "#footTrack"].forEach((sel) => { const el = $(sel); if (el) el.addEventListener("click", () => { $("#mainNav").classList.remove("open"); closeModal(); openTrack(""); }); });
+    /* The Track buttons now go to the permanent /track page rather than opening a
+     modal. A modal dies with the shop page, so a guest who closed the tab lost
+     their progress and had nothing to bookmark or share. */
+  ["#navTrack", "#heroTrack", "#footTrack"].forEach((sel) => {
+    const el = $(sel); if (!el) return;
+    el.addEventListener("click", () => { $("#mainNav").classList.remove("open"); closeModal(); window.location.href = "/track"; });
+  });
   const closeBtn = $("#closeModal"); if (closeBtn) closeBtn.addEventListener("click", closeModal);
   const buyBarGo = $("#buyBarGo"); if (buyBarGo) buyBarGo.addEventListener("click", () => { if (state.plan) openOrder(state.plan.id); });
   const buyBarX = $("#buyBarX"); if (buyBarX) buyBarX.addEventListener("click", clearPick);
@@ -671,7 +677,13 @@ function closeModal() { const m = $("#orderModal"); m.classList.remove("open"); 
   if (orderModal) orderModal.addEventListener("click", (e) => {
     if (e.target === $("#orderModal")) closeModal();
     const closer = e.target.closest("[data-close]"); if (closer) { closeModal(); if (state.plan && state.step === "summary") clearPick(); }
-    const track = e.target.closest("#scTrack"); if (track) openTrack(track.dataset.prefill || "");
+    /* The confirmation's "Track this order" hands the code to the permanent /track
+       page so there is one tracking experience, and it survives closing the tab. */
+    const track = e.target.closest("#scTrack");
+    if (track) {
+      const code = track.dataset.prefill || "";
+      window.location.href = code ? "/track?code=" + encodeURIComponent(code) : "/track";
+    }
     const again = e.target.closest("[data-buyagain]"); if (again) { closeModal(); if (state.plan) openOrder(state.plan.id); }
   });
   document.addEventListener("keydown", (e) => e.key === "Escape" && closeModal());
@@ -681,7 +693,7 @@ function closeModal() { const m = $("#orderModal"); m.classList.remove("open"); 
   if (location.hash === "#track") setTimeout(()=> openTrack(""), 600);
   window.addEventListener("hashchange", () => { if (location.hash === "#track") openTrack(""); });
   if (qp.get("ref")) try { localStorage.setItem("pending_ref", qp.get("ref")); } catch {}
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=77", { updateViaCache: "none" }).catch(()=>{});
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=78", { updateViaCache: "none" }).catch(()=>{});
   fillNetworkPrice();
   setupInstallPrompt();
 }

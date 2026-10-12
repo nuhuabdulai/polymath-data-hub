@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Track your order | POLYMATH DATA HUB</title>
+<meta name="description" content="Check the status of your data order. No account needed - just the tracking code from your confirmation." />
+<meta name="robots" content="index, follow" />
+<link rel="icon" href="/img/icon-192.png" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="apple-touch-icon" href="/img/icon-192.png" />
+<link rel="canonical" href="https://bundles.example.com/track" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Track your order | POLYMATH DATA HUB" />
+<meta property="og:description" content="Check your data order status with the tracking code from your confirmation. No account needed." />
+<meta property="og:url" content="https://bundles.example.com/track" />
+<meta property="og:image" content="https://bundles.example.com/img/og-1200x630.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://bundles.example.com/img/og-1200x630.png" />
+<meta name="theme-color" content="#0e7490" />
+<link rel="stylesheet" href="/css/style.css?v=79" />
+</head>
+<body data-page="track">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="/"><span class="brand-mark">PD</span> POLYMATH <em>DATA HUB</em></a>
+    <nav class="main-nav" id="mainNav" aria-label="Main">
+      <a href="/">All Bundles</a><a href="/mtn">MTN</a><a href="/telecel">Telecel</a><a href="/airteltigo">AirtelTigo</a><a href="/account">My account</a>
+    </nav>
+    <a class="btn btn-whatsapp" id="waBtn" href="#" target="_blank" rel="noopener" hidden>WhatsApp us</a>
+    <button class="nav-toggle" id="navToggle" aria-label="Menu">Menu</button>
+  </div>
+</header>
+
+<main id="main" class="wrap track-page">
+  <h1>Track your order</h1>
+  <p class="track-lede">No account needed. Type the tracking code from your order confirmation and you will see exactly where your data is.</p>
+
+  <div class="card track-card">
+    <form id="trackForm" novalidate>
+      <div class="field">
+        <label for="trId">Tracking code</label>
+        <input id="trId" type="text" placeholder="PD-XXXXXXXXXX" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" maxlength="24" required />
+        <p class="hint">It looks like <b>PD-ABC123XYZ0</b> and is shown on your confirmation screen.</p>
+      </div>
+
+      <div class="field" id="last4Wrap" hidden>
+        <label for="trLast4">Last 4 digits of the number</label>
+        <input id="trLast4" type="tel" inputmode="numeric" placeholder="e.g. 6789" autocomplete="off" maxlength="4" />
+        <p class="hint">Only needed if you are entering an order reference that starts <b>YB</b>.</p>
+      </div>
+
+      <p class="inp-err" id="trErr" role="alert"></p>
+      <button type="submit" class="btn btn-primary btn-block" id="trGo">CHECK STATUS</button>
+    </form>
+    <div id="trReport" aria-live="polite"></div>
+  </div>
+
+  <section class="track-help">
+    <h2>Cannot find your code?</h2>
+    <ul>
+      <li><b>PD- codes</b> come straight from your confirmation screen or your WhatsApp receipt message.</li>
+      <li>If you only have the order reference (it starts <b>YB</b>), add the last 4 digits of the number the data is going to.</li>
+      <li>Lost both? Message us on WhatsApp with your number and we will look it up for you.</li>
+    </ul>
+    <p class="dim">Delivery is usually minutes. When a network is congested it can take hours. A slow order is not a failed order.</p>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-bottom">
+    &copy; <span id="year"></span> POLYMATH DATA HUB &middot;
+    <a href="/">Shop</a> &middot;
+    <a href="/account">My account</a> &middot;
+    <a href="/terms">Terms</a> &middot;
+    <a href="/refund-policy">Refund policy</a> &middot;
+    <a href="/privacy">Privacy</a>
+  </div>
+</footer>
+
+<script src="/js/nav.js?v=2"></script>
+<script src="/js/track.js?v=1"></script>
+</body>
+</html>

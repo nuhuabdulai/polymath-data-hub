@@ -1608,3 +1608,130 @@ body.nav-open { overflow: hidden; }
 }
 .track-code-hint { display: block; font-size: 12px; color: var(--muted); }
 @media (max-width: 480px) { .track-code-value { font-size: 22px; } }
+
+/* v79 — /account overlapped its own content on phones. Three separate causes,
+   all fixed together because on a 360px screen they compounded: the page looked
+   broken rather than merely cramped. */
+
+/* 1. The table scroller used a negative margin to bleed to the screen edge, but
+      the table inside has min-width:460px. On a narrow phone the scroller was
+      wider than the viewport, so it spilled over the page edges and over
+      whatever sat below it. The bleed is a desktop nicety; on a phone it is a
+      fault. Contain it, and let the table scroll inside its own box. */
+.acc-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+.acc-scroll .admin-table { min-width: 460px; }
+
+/* 2. .pin-row was flex-wrap:nowrap with a fixed 92px input plus a nowrap button.
+      With a long label the button could not shrink, so it pushed past the
+      container and overlapped whatever was next to it. */
+.pin-row { flex-wrap: wrap; }
+.pin-row input { width: 100%; min-width: 0; flex: 1 1 100%; }
+.pin-row .buy-btn { flex: 1 1 auto; min-height: 44px; }
+
+/* 3. Long unbroken strings (order refs, tracking codes, wallet values) were
+      forcing their container wider than the screen, which is what pushed the
+      rest of the page sideways and made elements appear to overlap. */
+.acc-card, .acc-row, .acc-hero, .order-sum, .acc-dash { min-width: 0; }
+.acc-card td, .acc-card th { overflow-wrap: anywhere; word-break: break-word; }
+
+/* 4. Flex children default to min-width:auto, so a wide input or a long label
+      refuses to shrink below its content. This is the single most common cause
+      of horizontal overflow and overlap on mobile. */
+.acc-row > *, .acc-hero > *, .pay-actions > *, .pin-row > * { min-width: 0; }
+
+/* 5. Anything wider than the viewport, on a phone, gets a visible edge so the
+      user can tell there is more to scroll rather than assuming it is broken. */
+@media (max-width: 860px) {
+  .acc-scroll {
+    margin: 12px 0 0;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent);
+    mask-image: linear-gradient(90deg, #000 88%, transparent);
+  }
+  .acc-scroll .admin-table { min-width: 420px; }
+  .acc-hero { gap: 12px; }
+  .acc-card { padding: 16px; }
+}
+
+/* v79 — /track, the permanent guest page. Someone chasing an order is usually
+   on a phone, so the code box is the biggest thing on the screen and the button
+   meets the 44px touch minimum. */
+.track-page { padding: 28px 20px 72px; max-width: 620px; }
+.track-page h1 { font-size: 28px; margin: 0 0 6px; }
+.track-lede { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
+.track-card {
+  border: 1px solid var(--line); border-radius: 18px; padding: 22px;
+  box-shadow: 0 1px 3px rgba(15,23,42,.05), 0 8px 24px rgba(15,23,42,.04);
+  margin-bottom: 22px;
+}
+.track-card .field { margin-bottom: 14px; }
+.track-card .field label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.track-card .hint { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+.track-card input {
+  width: 100%; max-width: 100%; min-width: 0;
+  font: 700 20px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 1px; text-align: center;
+  padding: 14px 12px; border: 1.5px solid var(--line); border-radius: 12px;
+  background: #fff; color: var(--ink);
+}
+.track-card input:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+.track-card .btn-block { min-height: 50px; font-size: 16px; width: 100%; }
+.track-help { border-top: 1px solid var(--line); padding-top: 18px; }
+.track-help h2 { font-size: 16px; margin: 0 0 10px; }
+.track-help ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+.track-help li { margin-bottom: 8px; }
+.track-steps { list-style: none; margin: 18px 0 0; padding: 0; }
+.track-steps li { display: flex; align-items: flex-start; gap: 12px; padding: 7px 0; font-size: 14px; color: var(--muted); }
+.track-steps .dot {
+  flex: 0 0 auto; width: 14px; height: 14px; border-radius: 50%; margin-top: 3px;
+  border: 2px solid var(--line); background: #fff;
+}
+.track-steps li.done { color: var(--ink); }
+.track-steps li.done .dot { background: var(--brand); border-color: var(--brand); }
+.track-steps li.current { color: var(--ink); font-weight: 700; }
+.track-steps li.current .dot { border-color: var(--brand); background: #fff; box-shadow: 0 0 0 4px rgba(13,148,136,.16); }
+@media (max-width: 480px) {
+  .track-page h1 { font-size: 24px; }
+  .track-card { padding: 16px; }
+  .track-card input { font-size: 18px; letter-spacing: .5px; }
+}
+
+/* v79 — tap targets. Apple and Google both say 44px is the minimum for anything
+   you press with a thumb. Three customer-facing controls were under it:
+   .link-btn rendered at ~20px because its padding was 0, and the inline admin
+   action buttons sat at 40px and 36px. A target that small is genuinely hard to
+   hit, which is the same as a broken button for the people most likely to be
+   using a phone. Padding is added without changing how anything looks. */
+.link-btn {
+  padding: 12px 10px;
+  margin: -4px -6px;
+  /* keeps the visual position identical while enlarging the hit area */
+  display: inline-block;
+}
+.success .link-btn, .link-btn[data-close] { margin: 6px -6px 0; }
+.ord-c-act .buy-btn { min-height: 44px; }
+.ord-c-act .act-alt .buy-btn { min-height: 44px; }
+
+/* Anything that is only a small icon still needs to be reachable. */
+.wa-float { min-width: 54px; min-height: 54px; }
+
+/* Clear focus for keyboard users on the controls that matter most. The default
+   outline was being suppressed by the button reset in several places. */
+.link-btn:focus-visible,
+.buy-btn:focus-visible,
+.btn:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

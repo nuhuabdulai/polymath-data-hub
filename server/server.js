@@ -3352,6 +3352,14 @@ app.get("/account", (req, res) => {
   servePage(res, "account.html");
 });
 
+/* A permanent, shareable page for people who never made an account. Tracking
+   already worked without signing in, but only from a button inside a modal, so
+   it could not be bookmarked and there was nowhere to send someone who asks
+   "how do I check my order?". This is that URL. */
+app.get("/track", (req, res) => {
+  servePage(res, "track.html");
+});
+
 app.get("/complete", (req, res) => {
   servePage(res, "complete.html");
 });
