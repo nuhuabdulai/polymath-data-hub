@@ -1735,3 +1735,82 @@ textarea:focus-visible {
   outline-offset: 2px;
   border-radius: 8px;
 }
+
+/* v80 — "My purchases" on a phone. The table has seven columns and a min-width
+   of 460px, so on a 360px screen roughly a third of it sat off the right edge
+   with nothing to say "there is more over here". The result read as if the rest
+   of the customer's orders had vanished, which is the worst possible reading of
+   a purchase history.
+
+   The fix is the pattern the admin orders table already uses: under 700px each
+   row becomes its own card, every cell keeps its label via data-label, the
+   header row is hidden because the labels replace it, and nothing scrolls
+   sideways. The customer can see every purchase in full. */
+/* 860px, not 700px: the seven-column table needs 460px of real estate before it
+   reads as a table, and between 700 and 860 it was being squeezed to 108px per
+   column with the button wrapping to two lines. Tablets get cards as well. */
+@media (max-width: 860px) {
+  .acc-scroll {
+    overflow-x: visible;
+    border: 0;
+    -webkit-mask-image: none;
+    mask-image: none;
+    margin: 14px 0 0;
+  }
+  .acc-scroll .admin-table,
+  .acc-scroll .admin-table tbody,
+  .acc-scroll .admin-table tr,
+  .acc-scroll .admin-table td { display: block; width: 100%; min-width: 0; }
+
+  /* the header is redundant now that every cell is labelled */
+  .acc-scroll .admin-table thead { display: none; }
+
+  .acc-scroll .admin-table {
+    background: transparent; border: 0; border-radius: 0;
+    overflow: visible; margin-top: 0;
+  }
+  .acc-scroll .admin-table tbody tr {
+    border: 1px solid var(--line); border-radius: 14px;
+    background: #fff; padding: 12px 14px; margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  }
+  .acc-scroll .admin-table td {
+    display: grid; grid-template-columns: 84px 1fr; gap: 10px;
+    align-items: start; padding: 6px 0; border: 0;
+    text-align: left; font-size: 14px;
+  }
+  /* the label comes from data-label; the empty one on the action cell is skipped */
+  .acc-scroll .admin-table td::before {
+    content: attr(data-label);
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .4px; color: var(--muted); padding-top: 3px;
+  }
+  .acc-scroll .admin-table td[data-label=""]::before { display: none; }
+
+  /* the order number is the heading of the card, not just another row */
+  .acc-scroll .admin-table td[data-label="Order"] {
+    display: block; padding-bottom: 8px; margin-bottom: 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  .acc-scroll .admin-table td[data-label="Order"]::before { display: none; }
+  .acc-scroll .admin-table td[data-label="Order"] b { font-size: 15px; }
+
+  /* The button cell is a grid (label column + value), so the button itself has
+     to be told to fill the value column, not the cell. Without this it shrank to
+     the text and wrapped onto two lines. */
+  .acc-scroll .admin-table td[data-label=""] { display: block; }
+  .acc-buyagain {
+    display: block; width: 100%; min-height: 46px;
+    margin-top: 10px; padding-top: 12px;
+    border-top: 1px solid var(--line); text-align: center; white-space: nowrap;
+  }
+
+  /* stacked labels inside a cell need to breathe rather than run together */
+  .acc-scroll .admin-table td small.dim { display: block; margin-top: 2px; }
+
+  /* a badge is a label, not a value to fill the column - it was stretching the
+     full width and reading as a bar rather than a status */
+  .acc-scroll .admin-table td[data-label="Status"] .badge {
+    display: inline-block; width: auto; vertical-align: middle;
+  }
+}
