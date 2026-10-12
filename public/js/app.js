@@ -693,7 +693,7 @@ function closeModal() { const m = $("#orderModal"); m.classList.remove("open"); 
   if (location.hash === "#track") setTimeout(()=> openTrack(""), 600);
   window.addEventListener("hashchange", () => { if (location.hash === "#track") openTrack(""); });
   if (qp.get("ref")) try { localStorage.setItem("pending_ref", qp.get("ref")); } catch {}
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=79", { updateViaCache: "none" }).catch(()=>{});
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=80", { updateViaCache: "none" }).catch(()=>{});
   fillNetworkPrice();
   setupInstallPrompt();
 }

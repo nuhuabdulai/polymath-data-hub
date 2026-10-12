@@ -1808,9 +1808,72 @@ textarea:focus-visible {
   /* stacked labels inside a cell need to breathe rather than run together */
   .acc-scroll .admin-table td small.dim { display: block; margin-top: 2px; }
 
-  /* a badge is a label, not a value to fill the column - it was stretching the
-     full width and reading as a bar rather than a status */
+  /* A badge is a label, not a value to fill the column. It was stretching to
+     the full width and reading as a progress bar rather than a status. The
+     grid column is 1fr, so justify-self is what actually pins it to the left. */
+  .acc-scroll .admin-table td[data-label="Status"] {
+    grid-template-columns: 84px auto;
+  }
   .acc-scroll .admin-table td[data-label="Status"] .badge {
-    display: inline-block; width: auto; vertical-align: middle;
+    display: inline-block; width: auto; max-width: 100%;
+    justify-self: start; vertical-align: middle; white-space: nowrap;
+  }
+
+  /* The order number and its code are the thing a customer copies or quotes on
+     WhatsApp, so they select as one block instead of word by word. */
+  /* display:block on the code adds a line-height's worth of leading, which
+     opened a visible gap under the order number. Tighten it back. */
+  .acc-scroll .admin-table td[data-label="Order"] b,
+  .acc-scroll .admin-table td[data-label="Order"] small.dim {
+    display: block; line-height: 1.35; user-select: all; -webkit-user-select: all;
+  }
+  .acc-scroll .admin-table td[data-label="Order"] small.dim {
+    margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+  }
+  /* the code line should not be part of the "select all" grab, or it copies twice */
+  .acc-scroll .admin-table td[data-label="Order"] small.dim {
+    user-select: text; -webkit-user-select: text;
   }
 }
+
+/* v80 — tap targets, measured on every page at 360px and 414px with the real
+   markup. A full audit found no horizontal overflow anywhere, but found the
+   same three undersized controls on every single page:
+
+     footer links          23px   (measured)
+     footer-bottom links   16-20px (measured)
+     the brand link        30px   (measured)
+
+   All three are links people tap with a thumb, and all three sit well under
+   the 44px minimum that Apple and Google both specify. A target that small is
+   functionally the same as a broken button. Padding is added here, and only
+   here - nothing about the page moves visually because the space is taken from
+   the surrounding margin, not from the layout. */
+.site-footer .footer-grid a,
+.site-footer .footer-bottom a {
+  display: inline-block;
+  min-height: 44px;
+  padding: 12px 2px;
+  line-height: 20px;
+}
+.site-footer .footer-grid a { margin: 0; }
+.site-footer .footer-grid a + a { margin-top: 0; }
+
+/* On a phone the footer links stack, so they get full-width rows that read as
+   tappable rather than as a dense list of text. */
+@media (max-width: 860px) {
+  .site-footer .footer-grid a { display: flex; align-items: center; width: 100%; }
+  .site-footer .footer-bottom { display: flex; flex-wrap: wrap; gap: 2px 4px; align-items: center; }
+  .site-footer .footer-bottom a { min-height: 44px; padding: 12px 4px; }
+}
+
+/* The brand is a link too, and 30px is not enough of a target. */
+.brand { min-height: 44px; display: inline-flex; align-items: center; }
+
+/* A link inside a span (the WhatsApp line) gets the same treatment. */
+a > span:only-child { display: inline-block; min-height: 40px; line-height: 40px; }
+
+/* The trust-strip WhatsApp link was 20px tall - the last undersized target the
+   audit found. It is a real link people tap, not decoration. */
+.trust-strip a { display: inline-block; min-height: 40px; line-height: 40px; }
